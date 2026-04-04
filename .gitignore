@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.DS_Store
+coverage/
+tmp/
+*.log
+*.tgz
+.tsbuildinfo
+.vscode/
+.idea/
+.claude/
+.qwen/
+.tmp-init-home/
+err.txt
+
