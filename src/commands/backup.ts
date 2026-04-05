@@ -2,6 +2,7 @@ import { CerberusError, ErrorCode } from "../core/errors.js";
 import type { AppContext } from "../core/types.js";
 import {
   createBackup,
+  restoreBackup,
   verifyBackup,
 } from "../services/backup-service.js";
 
@@ -9,10 +10,12 @@ function parseBackupArgs(args: string[]): {
   subcommand: string;
   outputDir?: string;
   backupDir?: string;
+  restoreFrom?: string;
+  dryRun: boolean;
 } {
   if (args.length === 0) {
     throw new CerberusError(
-      "Usage: cerberus backup <create|verify> ...",
+      "Usage: cerberus backup <create|verify|restore> ...",
       ErrorCode.INVALID_ARGS,
     );
   }
@@ -20,6 +23,8 @@ function parseBackupArgs(args: string[]): {
   const subcommand = args[0];
   let outputDir: string | undefined;
   let backupDir: string | undefined;
+  let restoreFrom: string | undefined;
+  let dryRun = false;
 
   for (let i = 1; i < args.length; i++) {
     if (args[i] === "--output" || args[i] === "-o") {
@@ -42,17 +47,30 @@ function parseBackupArgs(args: string[]): {
       }
       backupDir = val;
       i += 1;
+    } else if (args[i] === "--from") {
+      const val = args[i + 1];
+      if (!val) {
+        throw new CerberusError(
+          "Missing value for --from",
+          ErrorCode.INVALID_ARGS,
+        );
+      }
+      restoreFrom = val;
+      i += 1;
+    } else if (args[i] === "--dry-run") {
+      dryRun = true;
     }
   }
 
-  return { subcommand, outputDir, backupDir };
+  return { subcommand, outputDir, backupDir, restoreFrom, dryRun };
 }
 
 export async function runBackupCommand(
   context: AppContext,
   args: string[],
 ): Promise<void> {
-  const { subcommand, outputDir, backupDir } = parseBackupArgs(args);
+  const { subcommand, outputDir, backupDir, restoreFrom, dryRun } =
+    parseBackupArgs(args);
 
   if (subcommand === "create") {
     if (!outputDir) {
@@ -89,6 +107,40 @@ export async function runBackupCommand(
         ErrorCode.BACKUP_FAILED,
       );
     }
+    return;
+  }
+
+  if (subcommand === "restore") {
+    if (!restoreFrom) {
+      throw new CerberusError(
+        "Missing --from <backup-dir>. Usage: cerberus backup restore --from <dir> --output <dir> [--dry-run]",
+        ErrorCode.INVALID_ARGS,
+      );
+    }
+    if (!outputDir) {
+      throw new CerberusError(
+        "Missing --output <dir>. Usage: cerberus backup restore --from <dir> --output <dir> [--dry-run]",
+        ErrorCode.INVALID_ARGS,
+      );
+    }
+    const plan = await restoreBackup({
+      backupDir: restoreFrom,
+      targetDir: outputDir,
+      dryRun,
+    });
+    const lines = [
+      dryRun ? "Restore plan (dry-run, no files written):" : "Restored backup to:",
+      `  backup (source): ${plan.backupRoot}`,
+      `  target (vault root): ${plan.targetRoot}`,
+      `  files: ${plan.totalFiles}`,
+      `  total bytes: ${plan.totalBytes}`,
+    ];
+    if (dryRun) {
+      for (const f of plan.files) {
+        lines.push(`  - ${f.relativePath} (${f.sizeBytes} bytes)`);
+      }
+    }
+    console.log(lines.join("\n"));
     return;
   }
 

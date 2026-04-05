@@ -20,6 +20,25 @@ export function openDatabase(appPaths: AppPaths): Database.Database {
   return db;
 }
 
+export function openExistingDatabaseReadonly(
+  appPaths: AppPaths,
+): Database.Database {
+  let db: Database.Database;
+  try {
+    db = new Database(appPaths.dbPath, {
+      readonly: true,
+      fileMustExist: true,
+    });
+  } catch {
+    throw new CerberusError(
+      "Could not open the local database.",
+      ErrorCode.UNKNOWN,
+    );
+  }
+  db.pragma("foreign_keys = ON");
+  return db;
+}
+
 export function runMigrations(db: Database.Database): void {
   const current = db.pragma("user_version", { simple: true }) as number;
   if (current === SCHEMA_VERSION) {

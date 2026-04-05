@@ -2,9 +2,11 @@ import { CerberusError } from "../core/errors.js";
 import { buildAppContext } from "../core/runtime.js";
 import { runAttachCommand } from "../commands/attach.js";
 import { runBackupCommand } from "../commands/backup.js";
+import { runDoctorCommand } from "../commands/doctor.js";
 import { runDeleteCommand } from "../commands/delete.js";
 import { runEditCommand } from "../commands/edit.js";
 import { runExportCommand } from "../commands/export.js";
+import { runImportCommand } from "../commands/import.js";
 import { runInitCommand } from "../commands/init.js";
 import { runListCommand } from "../commands/list.js";
 import { runLockCommand } from "../commands/lock.js";
@@ -39,10 +41,14 @@ function renderHelp(): string {
     "  edit <entry-id>  Edit an entry",
     "  delete <entry-id> Delete an entry",
     "  export           Export entries in plaintext",
+    "  import           Import plaintext exports into the vault",
+    "  doctor check     Check vault metadata vs ciphertext files",
+    "  doctor cleanup   Conservatively remove orphan vault files / broken entries",
     "  search           Search entries by title or tag",
     "  attach           Manage attachments",
     "  backup create    Create a backup of the vault",
     "  backup verify    Verify a backup against its manifest",
+    "  backup restore   Restore a verified backup to a new vault directory",
     "",
     "Global Options:",
     "  --vault <path>  Use an explicit vault root instead of ~/.cerberus",
@@ -161,6 +167,12 @@ export async function runCli(args: string[], version: string): Promise<void> {
       return;
     case "export":
       await runExportCommand(context, rest);
+      return;
+    case "import":
+      await runImportCommand(context, rest);
+      return;
+    case "doctor":
+      await runDoctorCommand(context, rest);
       return;
     case "search":
       await runSearchCommand(context, rest);

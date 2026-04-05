@@ -1,13 +1,13 @@
 # Cerberus 技术方案
 
-> 你的秘密、记忆与最后的话，不只被妥善保存，也能被可靠恢复。
+> 面向 agents 的本地优先加密金库 CLI，先把命令契约做稳，再考虑更远的能力扩展。
 
-_当前阶段：Iteration 3 / 恢复闭环与数据体检_
-_最后更新：2026-04-04_
+_当前阶段：Iteration 4 / CLI 契约稳定与运维可信度_
+_最后更新：2026-04-05_
 
 ## 1. 当前状态
 
-Cerberus 已完成前两期迭代，当前仓库已经具备以下能力：
+Cerberus 已完成前三期迭代，当前仓库已经具备以下能力：
 
 - 本地初始化金库
 - 主密码解锁与短时会话
@@ -15,27 +15,29 @@ Cerberus 已完成前两期迭代，当前仓库已经具备以下能力：
 - 分类与标签管理
 - 标题与标签搜索
 - 加密附件保存与导出
-- 基础 OpenClaw Skill 接入
 - `--vault` / `--home` 路径覆盖
 - `init` / `unlock` 的非 TTY 脚本输入
-- `backup create` / `backup verify`
-- `export --all` / `--category` / `--format`
 - `lock`
 - `list/search/show --json`
-- Skill 的 `delete/edit/attach` 最小补齐
+- `backup create` / `backup verify` / `backup restore`
+- `export --all|--category --format json|markdown`
+- `import --format json|markdown`
+- `doctor check` / `doctor check --json`
+- `doctor cleanup --dry-run|--apply`
+- OpenClaw 基础 Skill 闭环
 
-当前产品已经具备“可备份、可导出、可脚本化”的基础，但仍缺少真正的“恢复闭环”。
+当前产品已经从“可备份、可导出”推进到“可恢复、可检查、可保守维护”，但距离真正适合长期交给 agents 使用，还差一步“命令契约稳定化”。
 
-## 2. Iteration 3 目标
+## 2. Iteration 4 目标
 
-第三期聚焦以下目标：
+第四期不做 UI，也不做 TUI，继续坚持以 CLI 和 agent 自动化为中心。
 
-- 备份恢复链路补齐
-- 明文导入链路补齐
-- 金库一致性体检与修复辅助
-- 更稳健的数据卫生工具
+本期聚焦以下目标：
 
-本期希望交付一个“用户即使迁移机器、误删文件、或长期使用后产生数据偏差，也能自行检查并恢复”的版本。
+- 让高风险命令具备更稳定的机器可读输出
+- 统一关键命令的退出语义和错误表达
+- 为 restore / import / cleanup 等操作补上可追溯的本地操作记录
+- 用更强的集成验收与演练文档，提升“可托付感”
 
 ## 3. 本期范围
 
@@ -43,23 +45,19 @@ Cerberus 已完成前两期迭代，当前仓库已经具备以下能力：
 
 | 模块 | 功能 | 说明 |
 |---|---|---|
-| 恢复 | `backup restore` | 从已校验备份恢复到显式目标目录 |
-| 恢复 | `backup restore --dry-run` | 恢复前预演，显示将写入的文件 |
-| 导入 | `import --format json` | 从明文 JSON 导入条目 |
-| 导入 | `import --format markdown` | 从 Markdown 目录导入条目 |
-| 体检 | `doctor check` | 检查配置、数据库、密文文件、附件映射的一致性 |
-| 体检 | `doctor check --json` | 为脚本输出结构化检查结果 |
-| 维护 | `doctor cleanup --dry-run` | 识别孤儿文件 / 孤儿记录，不默认删除 |
-| 维护 | `doctor cleanup --apply` | 显式执行清理，默认保守 |
+| 契约 | maintenance JSON 输出补齐 | 覆盖 backup / import / doctor cleanup 等维护命令 |
+| 契约 | 错误与退出码整理 | 让脚本与 agent 更容易消费失败结果 |
+| 运维 | 高风险操作日志 | 记录 backup / restore / import / cleanup 等操作摘要，不记录正文 |
+| 验收 | 集成演练与发布清单 | 把“能跑”提升到“可复现验证” |
 
 ### 3.2 暂不纳入
 
-- 多端同步
-- 语义搜索
+- Web UI
 - TUI
-- 审计日志
-- 分片恢复
-- 自动后台备份
+- 云同步
+- 语义搜索
+- 双向链接
+- 分布式协作
 
 ## 4. 产品原则
 
@@ -71,23 +69,25 @@ Cerberus 已完成前两期迭代，当前仓库已经具备以下能力：
 - 尽量使用成熟组件，不自造密码学方案
 - 可自动化，但不牺牲默认安全边界
 
-### 4.2 Iteration 3 新增原则
+### 4.2 Iteration 4 新增原则
 
-- 恢复必须显式且可预演
-- 导入必须保守，尽量不覆盖已有数据
-- 体检结果应可读、可脚本解析、可复查
-- 清理命令默认只报告，不直接破坏数据
+- 面向 agents 的命令必须优先提供稳定契约
+- 高风险命令不仅要安全，还要可审计、可复盘
+- 诊断输出与错误输出应当适合脚本消费，而不是只适合人眼阅读
+- 不为了“未来 UI”提前引入复杂交互层
 
 ## 5. 系统架构
 
 ```text
 ┌──────────────────────────────────────────────┐
-│ Skill Layer                                  │
-│ OpenClaw Skill / 对话式入口                   │
+│ Agent / Skill Layer                          │
+│ OpenClaw Skill / 自动化调用 / shell scripts   │
+├──────────────────────────────────────────────┤
+│ CLI Contract Layer                           │
+│ help / exit codes / json output / errors     │
 ├──────────────────────────────────────────────┤
 │ Application Layer                            │
-│ backup / restore / import / doctor           │
-│ 业务规则、冲突处理、输出语义                  │
+│ entries / backup / import / doctor / attach  │
 ├──────────────────────────────────────────────┤
 │ Crypto Layer                                 │
 │ age CLI 封装、identity 管理、session 管理      │
@@ -95,100 +95,80 @@ Cerberus 已完成前两期迭代，当前仓库已经具备以下能力：
 │ Storage Layer                                │
 │ SQLite 元数据 + 文件系统密文                  │
 ├──────────────────────────────────────────────┤
-│ Packaging & Integrity Layer                  │
-│ manifest / restore planning / doctor checks  │
+│ Operations Layer                             │
+│ manifest / doctor / operation log / tests    │
 └──────────────────────────────────────────────┘
 ```
 
-## 6. Iteration 3 设计方向
+## 6. Iteration 4 设计方向
 
-### 6.1 备份恢复
-
-目标：
-
-- 从通过校验的备份恢复出可用 vault
-- 不覆盖已有目标目录
-- 恢复前可预演
-
-建议行为：
-
-- `backup restore --from <backup-dir> --output <vault-dir>`
-- 默认要求目标目录不存在或为空
-- 先验证 manifest，再执行恢复
-- 恢复过程中保留清晰步骤输出
-
-### 6.2 明文导入
+### 6.1 机器可读契约补齐
 
 目标：
 
-- 允许用户从导出的 JSON / Markdown 重建条目
-- 不要求恢复原始 entry id
-- 可映射分类、标题、标签、正文
+- 让维护命令对 agent 更可预测
+
+建议方向：
+
+- 为 `backup verify` / `backup restore --dry-run` / `import` / `doctor cleanup` 补 `--json`
+- 约束 JSON 字段命名、排序和失败输出语义
+- 文本输出继续保留，但不再是唯一契约
+
+### 6.2 错误与退出码整理
+
+目标：
+
+- 降低 shell / agent 集成时的脆弱解析
+
+建议方向：
+
+- 明确哪些失败属于 `INVALID_ARGS`、哪些属于 `BACKUP_FAILED`、哪些属于 `VAULT_STATE_INVALID`
+- README 和 help 要同步说明高风险命令的失败边界
+
+### 6.3 本地操作日志
+
+目标：
+
+- 对高风险命令形成最小必要审计
 
 边界：
 
-- 导入是明确的明文读取行为
-- 默认不覆盖现有条目
-- 冲突项应报告，不静默吞掉
+- 记录时间、命令、目标目录、结果摘要
+- 不记录正文、明文附件、主密码
+- 保持本地优先，不引入远程上报
 
-### 6.3 Doctor 体检
-
-目标：
-
-- 检查 vault 是否处于“数据库记录与密文文件一致”的状态
-- 为后续恢复和清理提供依据
-
-至少检查：
-
-- 配置与 key 文件是否存在
-- 数据库 schema 是否可读
-- `entries.content_path` 是否都有对应密文
-- 附件记录与附件密文是否一致
-- 是否存在孤儿 entry 文件 / attachment 文件
-
-### 6.4 清理工具
+### 6.4 集成演练与发布清单
 
 目标：
 
-- 在 doctor 结果基础上提供保守清理
+- 把“理论上支持恢复”推进到“可以重复演练”
 
-本期只做：
+建议方向：
 
-- `--dry-run` 默认
-- `--apply` 显式执行
-- 只处理可明确判定为孤儿的数据
-
-不做：
-
-- 自动修复冲突条目正文
-- 自动猜测缺失记录该如何重建
+- 备份 -> 校验 -> 恢复 -> 解锁 -> list 的端到端验收
+- 导出 -> 导入 -> 再导出的结构稳定性验证
+- doctor / cleanup 的保守边界回归样例
 
 ## 7. 风险与取舍
 
-### 7.1 恢复覆盖风险
+### 7.1 机器可读输出膨胀风险
 
-恢复命令最容易发生“把现有目录覆盖掉”。因此本期应坚持：
+如果每个命令随手定义一套 JSON，会让 CLI 契约失控。本期需要优先统一字段命名与返回风格。
 
-- 目标路径必须显式提供
-- 默认拒绝覆盖
-- 支持 dry-run
+### 7.2 审计日志泄漏风险
 
-### 7.2 明文导入风险
+操作日志很有价值，但如果记录过多上下文，反而会成为新的敏感信息面。本期必须坚持“只记操作摘要，不记正文内容”。
 
-导入需要读取明文源文件，因此必须：
+### 7.3 过早做 UI 的分心风险
 
-- 显式指定输入目录
-- 清晰报告导入条数、跳过条数、冲突条数
-- 不做隐式合并
-
-### 7.3 Doctor 误报/误修风险
-
-体检与清理本质上是维护工具，应优先“保守、可解释”，不要为了自动化而做高风险推断。
+Cerberus 当前主要使用者是 agents，而不是终端外的普通 GUI 用户。此时推进 UI 会稀释精力，也会拖慢契约稳定化。
 
 ## 8. 文档归档说明
 
-上一期文档已归档到：
+已归档文档：
 
+- `docs/history/2026-03-mvp/`
 - `docs/history/2026-04-iteration-2/`
+- `docs/history/2026-04-iteration-3/`
 
-当前 `docs/` 根目录仅保留三期的当前文档。
+当前 `docs/` 根目录仅保留第四期文档。

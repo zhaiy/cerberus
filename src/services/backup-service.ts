@@ -417,3 +417,128 @@ export async function verifyBackup(
     errors,
   };
 }
+
+// ── Public API: restore ──
+
+export interface RestorePlanFile {
+  relativePath: string;
+  sizeBytes: number;
+}
+
+/**
+ * Plan for restoring a verified backup into a vault root directory.
+ * Does not include manifest.json (not part of the restored vault tree).
+ */
+export interface RestorePlan {
+  /** Resolved absolute path to the backup directory */
+  backupRoot: string;
+  /** Resolved absolute path where vault files will be written */
+  targetRoot: string;
+  /** Files to copy, sorted by relative path */
+  files: RestorePlanFile[];
+  totalFiles: number;
+  totalBytes: number;
+}
+
+async function readManifestAfterVerify(backupRoot: string): Promise<BackupManifest> {
+  const manifestPath = path.join(backupRoot, "manifest.json");
+  const raw = await fs.readFile(manifestPath, "utf8");
+  return JSON.parse(raw) as BackupManifest;
+}
+
+/**
+ * Build a restore plan after verifying the backup. Throws if verification fails.
+ */
+export async function planRestore(
+  backupDir: string,
+  targetDir: string,
+): Promise<RestorePlan> {
+  const verifyResult = await verifyBackup(backupDir);
+  if (verifyResult.errors.length > 0) {
+    const detail = verifyResult.errors.map((e) => `  - ${e}`).join("\n");
+    throw new CerberusError(
+      `Backup verification failed:\n${detail}`,
+      ErrorCode.BACKUP_FAILED,
+    );
+  }
+
+  const backupRoot = path.resolve(backupDir);
+  const targetRoot = path.resolve(targetDir);
+  const manifest = await readManifestAfterVerify(backupRoot);
+
+  const files: RestorePlanFile[] = manifest.files
+    .map((entry) => ({
+      relativePath: entry.path,
+      sizeBytes: entry.sizeBytes,
+    }))
+    .sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+
+  let totalBytes = 0;
+  for (const f of files) {
+    totalBytes += f.sizeBytes;
+  }
+
+  return {
+    backupRoot,
+    targetRoot,
+    files,
+    totalFiles: files.length,
+    totalBytes,
+  };
+}
+
+async function assertRestoreTargetEmpty(targetRoot: string): Promise<void> {
+  try {
+    const st = await fs.stat(targetRoot);
+    if (!st.isDirectory()) {
+      throw new CerberusError(
+        `Restore target exists and is not a directory: ${targetRoot}`,
+        ErrorCode.BACKUP_FAILED,
+      );
+    }
+    const entries = await fs.readdir(targetRoot);
+    if (entries.length > 0) {
+      throw new CerberusError(
+        `Restore target directory is not empty: ${targetRoot}`,
+        ErrorCode.BACKUP_FAILED,
+      );
+    }
+  } catch (e) {
+    if (e instanceof CerberusError) {
+      throw e;
+    }
+    // Directory does not exist — allowed
+  }
+}
+
+export interface RestoreBackupOptions {
+  backupDir: string;
+  targetDir: string;
+  dryRun: boolean;
+}
+
+/**
+ * Verify backup, ensure target is missing or an empty directory, then copy all manifest files.
+ * Does not copy manifest.json into the target (it is not part of the vault).
+ */
+export async function restoreBackup(options: RestoreBackupOptions): Promise<RestorePlan> {
+  const plan = await planRestore(options.backupDir, options.targetDir);
+
+  await assertRestoreTargetEmpty(plan.targetRoot);
+
+  if (options.dryRun) {
+    return plan;
+  }
+
+  await fs.mkdir(plan.targetRoot, { recursive: true });
+
+  for (const file of plan.files) {
+    const src = path.join(plan.backupRoot, file.relativePath);
+    const dest = path.join(plan.targetRoot, file.relativePath);
+    const destDir = path.dirname(dest);
+    await fs.mkdir(destDir, { recursive: true });
+    await fs.copyFile(src, dest);
+  }
+
+  return plan;
+}

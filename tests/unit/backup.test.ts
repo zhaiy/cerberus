@@ -3,8 +3,14 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createBackup, verifyBackup } from "../../src/services/backup-service.js";
+import {
+  createBackup,
+  planRestore,
+  restoreBackup,
+  verifyBackup,
+} from "../../src/services/backup-service.js";
 import { CerberusError } from "../../src/core/errors.js";
+import { isVaultFullyInitialized } from "../../src/core/paths.js";
 import type { AppPaths } from "../../src/core/types.js";
 import { openDatabase, runMigrations } from "../../src/storage/db.js";
 import { createEntryRecord } from "../../src/storage/entries.js";
@@ -409,5 +415,131 @@ describe("backup service (verifyBackup)", () => {
 
     const result = await verifyBackup(dir);
     expect(result.errors).toContain("missing required manifest entry: db.sqlite");
+  });
+});
+
+describe("backup service (restoreBackup)", () => {
+  let vaultRoot: string;
+  let backupDir: string;
+  let restoreRoot: string;
+
+  afterEach(async () => {
+    if (vaultRoot) {
+      await fs.rm(vaultRoot, { recursive: true, force: true }).catch(() => {});
+    }
+    if (backupDir) {
+      await fs.rm(path.dirname(backupDir), { recursive: true, force: true }).catch(() => {});
+    }
+    if (restoreRoot) {
+      await fs.rm(restoreRoot, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it("restores a verified backup into a new empty directory as a usable vault", async () => {
+    vaultRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cerberus-restore-src-"));
+    const paths = await setupVault(vaultRoot);
+    backupDir = path.join(
+      await fs.mkdtemp(path.join(os.tmpdir(), "cerberus-restore-bak-")),
+      "backup",
+    );
+    await createBackup(paths, { outputDir: backupDir });
+
+    restoreRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cerberus-restore-tgt-"));
+    const targetVault = path.join(restoreRoot, "restored-vault");
+    await restoreBackup({
+      backupDir,
+      targetDir: targetVault,
+      dryRun: false,
+    });
+
+    const restoredPaths = tempPaths(targetVault);
+    const ok = await isVaultFullyInitialized(restoredPaths);
+    expect(ok).toBe(true);
+
+    const restoredDb = openDatabase(restoredPaths);
+    try {
+      const row = restoredDb
+        .prepare("SELECT id FROM entries WHERE id = ?")
+        .get("test-entry-1");
+      expect(row).toBeDefined();
+    } finally {
+      restoredDb.close();
+    }
+  });
+
+  it("dry-run does not create the target directory", async () => {
+    vaultRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cerberus-restore-dry-src-"));
+    const paths = await setupVault(vaultRoot);
+    backupDir = path.join(
+      await fs.mkdtemp(path.join(os.tmpdir(), "cerberus-restore-dry-bak-")),
+      "backup",
+    );
+    await createBackup(paths, { outputDir: backupDir });
+
+    restoreRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cerberus-restore-dry-tgt-"));
+    const targetVault = path.join(restoreRoot, "vault-missing");
+
+    await restoreBackup({
+      backupDir,
+      targetDir: targetVault,
+      dryRun: true,
+    });
+
+    await expect(fs.access(targetVault)).rejects.toBeDefined();
+  });
+
+  it("refuses restore when verification fails", async () => {
+    vaultRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cerberus-restore-bad-"));
+    const paths = await setupVault(vaultRoot);
+    backupDir = path.join(
+      await fs.mkdtemp(path.join(os.tmpdir(), "cerberus-restore-bad-bak-")),
+      "backup",
+    );
+    await createBackup(paths, { outputDir: backupDir });
+    await fs.rm(path.join(backupDir, "config.json"));
+
+    restoreRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cerberus-restore-bad-tgt-"));
+    const targetVault = path.join(restoreRoot, "t");
+
+    await expect(
+      restoreBackup({ backupDir, targetDir: targetVault, dryRun: true }),
+    ).rejects.toThrow(CerberusError);
+  });
+
+  it("refuses restore into a non-empty directory", async () => {
+    vaultRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cerberus-restore-full-src-"));
+    const paths = await setupVault(vaultRoot);
+    backupDir = path.join(
+      await fs.mkdtemp(path.join(os.tmpdir(), "cerberus-restore-full-bak-")),
+      "backup",
+    );
+    await createBackup(paths, { outputDir: backupDir });
+
+    restoreRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cerberus-restore-full-tgt-"));
+    const targetVault = path.join(restoreRoot, "occupied");
+    await fs.mkdir(targetVault, { recursive: true });
+    await fs.writeFile(path.join(targetVault, "keep.txt"), "x", "utf8");
+
+    await expect(
+      restoreBackup({ backupDir, targetDir: targetVault, dryRun: false }),
+    ).rejects.toThrow(/not empty/);
+  });
+
+  it("planRestore returns a stable sorted file list", async () => {
+    vaultRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cerberus-plan-src-"));
+    const paths = await setupVault(vaultRoot);
+    backupDir = path.join(
+      await fs.mkdtemp(path.join(os.tmpdir(), "cerberus-plan-bak-")),
+      "backup",
+    );
+    await createBackup(paths, { outputDir: backupDir });
+
+    restoreRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cerberus-plan-tgt-"));
+    const targetVault = path.join(restoreRoot, "t");
+    const plan = await planRestore(backupDir, targetVault);
+
+    const pathsSorted = [...plan.files.map((f) => f.relativePath)];
+    const sorted = [...pathsSorted].sort((a, b) => a.localeCompare(b));
+    expect(pathsSorted).toEqual(sorted);
   });
 });

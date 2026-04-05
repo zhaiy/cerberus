@@ -65,6 +65,66 @@ export interface CreateEntryOptions {
   category: EntryCategory;
   content: string;
   tags: string[];
+  /** When set (e.g. import), used for metadata timestamps; otherwise `now` is used */
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/**
+ * Encrypt content, write it to disk, insert metadata into SQLite, attach tags.
+ * Caller must already hold the vault write lock.
+ * Returns the generated entry ID.
+ */
+export async function createEntryWithLockHeld(
+  paths: AppPaths,
+  identityPlain: Buffer,
+  options: CreateEntryOptions,
+): Promise<string> {
+  const recipient = extractPublicKey(identityPlain);
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const createdAt = options.createdAt ?? now;
+  const updatedAt = options.updatedAt ?? now;
+  const fileName = `${id}.age`;
+
+  const ciphertext = await encryptBuffer(
+    Buffer.from(options.content, "utf8"),
+    recipient,
+  );
+
+  const contentFullPath = path.join(paths.entriesDir, fileName);
+  await fs.mkdir(paths.entriesDir, { recursive: true });
+  await fs.writeFile(contentFullPath, ciphertext, { mode: 0o600 });
+
+  const db = openDatabase(paths);
+  try {
+    runMigrations(db);
+    createEntryRecord(db, {
+      id,
+      title: options.title,
+      category: options.category,
+      contentPath: fileName,
+      createdAt,
+      updatedAt,
+    });
+
+    if (options.tags.length > 0) {
+      const tagIds: number[] = [];
+      for (const tagName of options.tags) {
+        const trimmed = tagName.trim();
+        if (trimmed.length === 0) continue;
+        const tag = ensureTag(db, trimmed);
+        tagIds.push(tag.id);
+      }
+      if (tagIds.length > 0) {
+        attachTagsToEntry(db, id, tagIds);
+      }
+    }
+  } finally {
+    db.close();
+  }
+
+  return id;
 }
 
 /**
@@ -76,51 +136,9 @@ export async function createEntry(
   identityPlain: Buffer,
   options: CreateEntryOptions,
 ): Promise<string> {
-  return withVaultWriteLock(paths, async () => {
-    const recipient = extractPublicKey(identityPlain);
-    const id = crypto.randomUUID();
-    const now = new Date().toISOString();
-    const fileName = `${id}.age`;
-
-    const ciphertext = await encryptBuffer(
-      Buffer.from(options.content, "utf8"),
-      recipient,
-    );
-
-    const contentFullPath = path.join(paths.entriesDir, fileName);
-    await fs.mkdir(paths.entriesDir, { recursive: true });
-    await fs.writeFile(contentFullPath, ciphertext, { mode: 0o600 });
-
-    const db = openDatabase(paths);
-    try {
-      runMigrations(db);
-      createEntryRecord(db, {
-        id,
-        title: options.title,
-        category: options.category,
-        contentPath: fileName,
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      if (options.tags.length > 0) {
-        const tagIds: number[] = [];
-        for (const tagName of options.tags) {
-          const trimmed = tagName.trim();
-          if (trimmed.length === 0) continue;
-          const tag = ensureTag(db, trimmed);
-          tagIds.push(tag.id);
-        }
-        if (tagIds.length > 0) {
-          attachTagsToEntry(db, id, tagIds);
-        }
-      }
-    } finally {
-      db.close();
-    }
-
-    return id;
-  });
+  return withVaultWriteLock(paths, () =>
+    createEntryWithLockHeld(paths, identityPlain, options),
+  );
 }
 
 /**

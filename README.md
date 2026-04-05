@@ -97,6 +97,27 @@ cerberus search --tag life            # Search by tag name
 
 Search operates on metadata only. Encrypted content is never scanned.
 
+### Export and import (plaintext)
+
+```bash
+cerberus export --all --format json --output /path/to/out
+cerberus import --format json --input /path/to/out
+cerberus import --format markdown --input /path/to/markdown-dir
+```
+
+Import reads only from the directory you pass. New entries always get new IDs; import reports success, skipped, and duplicate-ID conflicts inside `entries.json`.
+
+### Doctor (consistency and cleanup)
+
+```bash
+cerberus doctor check
+cerberus doctor check --json
+cerberus doctor cleanup              # dry-run: list actions only
+cerberus doctor cleanup --apply      # delete orphan ciphertext files only
+```
+
+`doctor check` compares SQLite metadata to files under `vault/entries` and `vault/attachments` without modifying the vault. `doctor cleanup` defaults to a dry-run; use `--apply` to remove only unambiguous orphan ciphertext files.
+
 ### Attachments
 
 ```bash
@@ -106,6 +127,16 @@ cerberus attach export <attachment-id> <path>  # Decrypt and export to target pa
 ```
 
 Attachments are encrypted with the same age identity as entries. Export requires an explicit target path — no files are left in temp directories.
+
+### Backup and restore
+
+```bash
+cerberus backup create --output /path/to/backup-dir   # Full vault snapshot + manifest
+cerberus backup verify --dir /path/to/backup-dir      # Check manifest and file digests
+cerberus backup restore --from /path/to/backup-dir --output /path/to/new-vault-root [--dry-run]
+```
+
+Restore verifies the backup before writing anything. The `--output` directory must be missing or empty. Use `--dry-run` to print the restore plan without copying files.
 
 ## Development
 
