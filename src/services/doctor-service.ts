@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { loadConfig } from "../core/config.js";
 import { CerberusError, ErrorCode } from "../core/errors.js";
+import { appendOperationLog, createOperationLogEntry } from "../core/operation-log.js";
 import { isVaultFullyInitialized } from "../core/paths.js";
 import type { AppPaths } from "../core/types.js";
 import { withVaultWriteLock } from "../core/vault-lock.js";
@@ -328,25 +329,64 @@ export async function runDoctorCleanup(
   appPaths: AppPaths,
   options: { apply: boolean },
 ): Promise<{ plan: CleanupPlan; applied: boolean }> {
-  const initialized = await isVaultFullyInitialized(appPaths);
-  if (!initialized) {
-    throw new CerberusError(
-      "Vault is not fully initialized.",
-      ErrorCode.VAULT_NOT_FOUND,
-    );
+  const startTime = Date.now();
+  try {
+    const initialized = await isVaultFullyInitialized(appPaths);
+    if (!initialized) {
+      throw new CerberusError(
+        "Vault is not fully initialized.",
+        ErrorCode.VAULT_NOT_FOUND,
+      );
+    }
+
+    const check = await runDoctorCheck(appPaths);
+    const plan = planCleanupFromCheck(appPaths, check);
+
+    if (options.apply && plan.items.length > 0) {
+      await applyCleanup(appPaths, plan);
+    }
+
+    const result = {
+      plan,
+      applied: options.apply,
+    };
+
+    try {
+      const mode = options.apply ? "apply" : "dry-run";
+      await appendOperationLog(
+        appPaths,
+        createOperationLogEntry({
+          command: "doctor",
+          subcommand: "cleanup",
+          result: "success",
+          targetPath: appPaths.vaultDir,
+          summary: `Cleanup ${mode}: ${plan.items.length} action(s) for ${appPaths.vaultDir}`,
+          durationMs: Date.now() - startTime,
+        }),
+      );
+    } catch {
+      // Silent fail - logging is not critical
+    }
+
+    return result;
+  } catch (e) {
+    const error = e instanceof CerberusError ? e.message : String(e);
+    try {
+      await appendOperationLog(
+        appPaths,
+        createOperationLogEntry({
+          command: "doctor",
+          subcommand: "cleanup",
+          result: "failed",
+          targetPath: appPaths.vaultDir,
+          summary: `Cleanup failed: ${error}`,
+          error,
+          durationMs: Date.now() - startTime,
+        }),
+      );
+    } catch {
+      // Silent fail - logging is not critical
+    }
+    throw e;
   }
-
-  const check = await runDoctorCheck(appPaths);
-  const plan = planCleanupFromCheck(appPaths, check);
-
-  if (!options.apply) {
-    return { plan, applied: false };
-  }
-
-  if (plan.items.length === 0) {
-    return { plan, applied: true };
-  }
-
-  await applyCleanup(appPaths, plan);
-  return { plan, applied: true };
 }

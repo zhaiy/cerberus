@@ -196,110 +196,122 @@ export async function createBackup(
   options: CreateBackupOptions,
 ): Promise<void> {
   const { outputDir } = options;
+  const startTime = Date.now();
 
-  // Validate vault is ready
-  const initialized = await isVaultFullyInitialized(appPaths);
-  if (!initialized) {
-    throw new CerberusError(
-      "Vault is not initialized. Run `cerberus init` first.",
-      ErrorCode.VAULT_NOT_FOUND,
-    );
-  }
-
-  // Ensure output dir doesn't already exist (avoid overwriting)
   try {
-    await fs.access(outputDir);
-    throw new CerberusError(
-      `Output directory already exists: ${outputDir}`,
-      ErrorCode.CONFLICT,
-    );
-  } catch (e) {
-    if (e instanceof CerberusError) throw e;
-    // Expected: access() throws when dir doesn't exist
-  }
-
-  let totalFiles = 0;
-  let totalBytes = 0;
-
-  await withVaultWriteLock(appPaths, async () => {
-    // Collect files while writers are blocked, so the file set and database snapshot
-    // describe the same vault state.
-    const vaultFiles = await collectVaultFiles(appPaths);
-
-    // Create output directory structure
-    await fs.mkdir(outputDir, { recursive: true });
-    const subDirs = new Set<string>(["keys"]);
-    for (const { rel } of vaultFiles) {
-      const dir = path.dirname(rel);
-      if (dir !== ".") subDirs.add(dir);
-    }
-    for (const dir of subDirs) {
-      await fs.mkdir(path.join(outputDir, dir), { recursive: true });
+    const initialized = await isVaultFullyInitialized(appPaths);
+    if (!initialized) {
+      throw new CerberusError(
+        "Vault is not initialized. Run `cerberus init` first.",
+        ErrorCode.VAULT_NOT_FOUND,
+      );
     }
 
-    // Snapshot the SQLite database in a WAL-safe way while the write lock is held.
-    await createDatabaseSnapshot(appPaths, path.join(outputDir, "db.sqlite"));
+    try {
+      await fs.access(outputDir);
+      throw new CerberusError(
+        `Output directory already exists: ${outputDir}`,
+        ErrorCode.CONFLICT,
+      );
+    } catch (e) {
+      if (e instanceof CerberusError) {
+        throw e;
+      }
+    }
 
-    // Copy files and compute digests
-    const manifestFiles: BackupManifestFile[] = [];
+    let totalFiles = 0;
+    let totalBytes = 0;
 
-    for (const { src, rel } of vaultFiles) {
-      const destPath = path.join(outputDir, rel);
-      await fs.copyFile(src, destPath);
+    await withVaultWriteLock(appPaths, async () => {
+      const vaultFiles = await collectVaultFiles(appPaths);
 
-      const sha256 = await sha256OfFile(destPath);
-      const st = await fs.stat(destPath);
+      await fs.mkdir(outputDir, { recursive: true });
+      const subDirs = new Set<string>(["keys"]);
+      for (const { rel } of vaultFiles) {
+        const dir = path.dirname(rel);
+        if (dir !== ".") subDirs.add(dir);
+      }
+      for (const dir of subDirs) {
+        await fs.mkdir(path.join(outputDir, dir), { recursive: true });
+      }
 
+      await createDatabaseSnapshot(appPaths, path.join(outputDir, "db.sqlite"));
+
+      const manifestFiles: BackupManifestFile[] = [];
+
+      for (const { src, rel } of vaultFiles) {
+        const destPath = path.join(outputDir, rel);
+        await fs.copyFile(src, destPath);
+
+        const sha256 = await sha256OfFile(destPath);
+        const st = await fs.stat(destPath);
+
+        manifestFiles.push({
+          path: rel,
+          sha256,
+          sizeBytes: st.size,
+        });
+      }
+
+      const dbSnapshotPath = path.join(outputDir, "db.sqlite");
+      const dbSnapshotStat = await fs.stat(dbSnapshotPath);
       manifestFiles.push({
-        path: rel,
-        sha256,
-        sizeBytes: st.size,
+        path: "db.sqlite",
+        sha256: await sha256OfFile(dbSnapshotPath),
+        sizeBytes: dbSnapshotStat.size,
       });
-    }
+      manifestFiles.sort((a, b) => a.path.localeCompare(b.path));
 
-    const dbSnapshotPath = path.join(outputDir, "db.sqlite");
-    const dbSnapshotStat = await fs.stat(dbSnapshotPath);
-    manifestFiles.push({
-      path: "db.sqlite",
-      sha256: await sha256OfFile(dbSnapshotPath),
-      sizeBytes: dbSnapshotStat.size,
+      totalFiles = manifestFiles.length;
+      totalBytes = manifestFiles.reduce((sum, file) => sum + file.sizeBytes, 0);
+
+      const manifest: BackupManifest = {
+        version: 1,
+        createdAt: new Date().toISOString(),
+        vaultVersion: 1,
+        totalFiles: manifestFiles.length,
+        files: manifestFiles,
+      };
+
+      const manifestPath = path.join(outputDir, "manifest.json");
+      const manifestJson = JSON.stringify(manifest, null, 2) + "\n";
+      await fs.writeFile(manifestPath, manifestJson, "utf8");
     });
-    manifestFiles.sort((a, b) => a.path.localeCompare(b.path));
 
-    // Calculate total bytes
-    let total = 0;
-    for (const f of manifestFiles) {
-      total += f.sizeBytes;
+    try {
+      await appendOperationLog(
+        appPaths,
+        createOperationLogEntry({
+          command: "backup",
+          subcommand: "create",
+          result: "success",
+          targetPath: outputDir,
+          summary: `Backup created: ${totalFiles} file(s), ${totalBytes} bytes`,
+          durationMs: Date.now() - startTime,
+        }),
+      );
+    } catch {
+      // Silent fail - logging is not critical
     }
-    totalFiles = manifestFiles.length;
-    totalBytes = total;
-
-    // Generate manifest
-    const manifest: BackupManifest = {
-      version: 1,
-      createdAt: new Date().toISOString(),
-      vaultVersion: 1,
-      totalFiles: manifestFiles.length,
-      files: manifestFiles,
-    };
-
-    const manifestPath = path.join(outputDir, "manifest.json");
-    const manifestJson = JSON.stringify(manifest, null, 2) + "\n";
-    await fs.writeFile(manifestPath, manifestJson, "utf8");
-  });
-
-  // Log the operation (non-blocking, silent fail if logging fails)
-  try {
-    const entry = createOperationLogEntry({
-      command: "backup",
-      subcommand: "create",
-      result: "success",
-      targetPath: outputDir,
-      summary: `Backup created: ${totalFiles} file(s), ${totalBytes} bytes`,
-    });
-    await appendOperationLog(appPaths, entry);
-  } catch {
-    // Silent fail - logging is not critical
+  } catch (e) {
+    const error = e instanceof CerberusError ? e.message : String(e);
+    try {
+      await appendOperationLog(
+        appPaths,
+        createOperationLogEntry({
+          command: "backup",
+          subcommand: "create",
+          result: "failed",
+          targetPath: outputDir,
+          summary: `Backup create failed: ${error}`,
+          error,
+          durationMs: Date.now() - startTime,
+        }),
+      );
+    } catch {
+      // Silent fail - logging is not critical
+    }
+    throw e;
   }
 }
 
@@ -579,6 +591,7 @@ export async function restoreBackupWithLog(
   try {
     const plan = await restoreBackup(options);
     const durationMs = Date.now() - startTime;
+    const action = options.dryRun ? "Restore dry-run completed" : "Restore completed";
 
     // Log the operation (non-blocking, silent fail if logging fails)
     try {
@@ -587,7 +600,7 @@ export async function restoreBackupWithLog(
         subcommand: "restore",
         result: "success",
         targetPath: options.targetDir,
-        summary: `Restore completed: ${plan.totalFiles} file(s), ${plan.totalBytes} bytes`,
+        summary: `${action}: ${plan.totalFiles} file(s), ${plan.totalBytes} bytes from ${plan.backupRoot}`,
         durationMs,
       });
       await appendOperationLog(appPaths, entry);

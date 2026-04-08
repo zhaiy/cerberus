@@ -31,6 +31,11 @@ function parseDoctorArgs(args: string[]): {
       apply = true;
     } else if (args[i] === "--dry-run") {
       dryRunExplicit = true;
+    } else if (args[i]?.startsWith("-")) {
+      throw new CerberusError(
+        `Unknown option for doctor ${subcommand}: ${args[i]}`,
+        ErrorCode.INVALID_ARGS,
+      );
     }
   }
 

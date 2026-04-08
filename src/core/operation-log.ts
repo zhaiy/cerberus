@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import crypto from "node:crypto";
 
 import type { AppPaths } from "./types.js";
 
@@ -45,11 +46,7 @@ export function createOperationLogEntry(
 
 /** Generate a unique ID for log entries */
 function generateId(): string {
-  // Use a simple timestamp-based ID
-  // In production, consider using crypto.randomUUID() if available
-  const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 8);
-  return `op_${timestamp}${random}`;
+  return `op_${crypto.randomUUID()}`;
 }
 
 /** Append an entry to the operation log */
@@ -60,10 +57,10 @@ export async function appendOperationLog(
   const logPath = getOperationLogPath(paths);
   const line = JSON.stringify(entry) + "\n";
   try {
+    await fs.mkdir(paths.appDir, { recursive: true });
     await fs.appendFile(logPath, line, "utf8");
-  } catch (e) {
+  } catch {
     // If writing to the log fails, silently fail - logging is not critical
-    // In production, you might want to log this to stderr
   }
 }
 

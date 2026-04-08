@@ -2,7 +2,7 @@ import { CerberusError, ErrorCode } from "../core/errors.js";
 import type { AppContext } from "../core/types.js";
 import {
   createBackup,
-  restoreBackup,
+  restoreBackupWithLog,
   verifyBackup,
 } from "../services/backup-service.js";
 
@@ -63,6 +63,11 @@ function parseBackupArgs(args: string[]): {
       dryRun = true;
     } else if (args[i] === "--json") {
       json = true;
+    } else if (args[i]?.startsWith("-")) {
+      throw new CerberusError(
+        `Unknown option for backup ${subcommand}: ${args[i]}`,
+        ErrorCode.INVALID_ARGS,
+      );
     }
   }
 
@@ -147,7 +152,7 @@ export async function runBackupCommand(
         ErrorCode.INVALID_ARGS,
       );
     }
-    const plan = await restoreBackup({
+    const plan = await restoreBackupWithLog(context.paths, {
       backupDir: restoreFrom,
       targetDir: outputDir,
       dryRun,

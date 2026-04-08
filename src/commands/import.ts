@@ -46,6 +46,11 @@ function parseImportArgs(args: string[]): ImportArgs {
       result.inputDir = val;
     } else if (arg === "--json") {
       result.json = true;
+    } else if (arg.startsWith("-")) {
+      throw new CerberusError(
+        `Unknown option for import: ${arg}`,
+        ErrorCode.INVALID_ARGS,
+      );
     }
   }
 

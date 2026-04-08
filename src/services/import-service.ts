@@ -267,63 +267,84 @@ export async function importPlaintextEntries(
   identityPlain: Buffer,
   options: ImportOptions,
 ): Promise<ImportResult> {
+  const startTime = Date.now();
   const inputDir = path.resolve(options.inputDir);
-  await assertImportDir(inputDir);
 
-  let items: ParsedItem[];
-  let parseStats: ImportResult;
+  try {
+    await assertImportDir(inputDir);
 
-  if (options.format === "json") {
-    const r = await collectJsonItems(inputDir);
-    items = r.items;
-    parseStats = r.stats;
-  } else {
-    const r = await collectMarkdownItems(inputDir);
-    items = r.items;
-    parseStats = r.stats;
-  }
+    let items: ParsedItem[];
+    let parseStats: ImportResult;
 
-  if (items.length === 0) {
-    return {
-      success: parseStats.success,
+    if (options.format === "json") {
+      const r = await collectJsonItems(inputDir);
+      items = r.items;
+      parseStats = r.stats;
+    } else {
+      const r = await collectMarkdownItems(inputDir);
+      items = r.items;
+      parseStats = r.stats;
+    }
+
+    let success = parseStats.success;
+
+    if (items.length > 0) {
+      await withVaultWriteLock(appPaths, async () => {
+        for (const item of items) {
+          await createEntryWithLockHeld(appPaths, identityPlain, {
+            title: item.title,
+            category: item.category,
+            content: item.content,
+            tags: item.tags,
+            createdAt: item.createdAt,
+            updatedAt: item.updatedAt,
+          });
+          success += 1;
+        }
+      });
+    }
+
+    const result = {
+      success,
       skipped: parseStats.skipped,
       conflict: parseStats.conflict,
     };
-  }
 
-  let success = parseStats.success;
-
-  await withVaultWriteLock(appPaths, async () => {
-    for (const item of items) {
-      await createEntryWithLockHeld(appPaths, identityPlain, {
-        title: item.title,
-        category: item.category,
-        content: item.content,
-        tags: item.tags,
-        createdAt: item.createdAt,
-        updatedAt: item.updatedAt,
-      });
-      success += 1;
+    try {
+      await appendOperationLog(
+        appPaths,
+        createOperationLogEntry({
+          command: "import",
+          subcommand: options.format,
+          result: "success",
+          targetPath: inputDir,
+          summary: `Import completed: success: ${result.success}, skipped: ${result.skipped}, conflict: ${result.conflict}`,
+          durationMs: Date.now() - startTime,
+        }),
+      );
+    } catch {
+      // Silent fail - logging is not critical
     }
-  });
 
-  // Log the operation (non-blocking, silent fail if logging fails)
-  try {
-    const entry = createOperationLogEntry({
-      command: "import",
-      subcommand: options.format,
-      result: "success",
-      targetPath: inputDir,
-      summary: `Import completed: success: ${success}, skipped: ${parseStats.skipped}, conflict: ${parseStats.conflict}`,
-    });
-    await appendOperationLog(appPaths, entry);
-  } catch {
-    // Silent fail - logging is not critical
+    return result;
+  } catch (e) {
+    const error = e instanceof CerberusError ? e.message : String(e);
+    try {
+      await appendOperationLog(
+        appPaths,
+        createOperationLogEntry({
+          command: "import",
+          subcommand: options.format,
+          result: "failed",
+          targetPath: inputDir,
+          summary: `Import failed: ${error}`,
+          error,
+          durationMs: Date.now() - startTime,
+        }),
+      );
+    } catch {
+      // Silent fail - logging is not critical
+    }
+    throw e;
   }
-
-  return {
-    success,
-    skipped: parseStats.skipped,
-    conflict: parseStats.conflict,
-  };
 }

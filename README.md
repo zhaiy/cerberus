@@ -102,6 +102,7 @@ Search operates on metadata only. Encrypted content is never scanned.
 ```bash
 cerberus export --all --format json --output /path/to/out
 cerberus import --format json --input /path/to/out
+cerberus import --format json --input /path/to/out --json
 cerberus import --format markdown --input /path/to/markdown-dir
 ```
 
@@ -112,8 +113,9 @@ Import reads only from the directory you pass. New entries always get new IDs; i
 ```bash
 cerberus doctor check
 cerberus doctor check --json
-cerberus doctor cleanup              # dry-run: list actions only
-cerberus doctor cleanup --apply      # delete orphan ciphertext files only
+cerberus doctor cleanup --json              # dry-run JSON plan
+cerberus doctor cleanup --apply             # delete orphan ciphertext files only
+cerberus doctor cleanup --apply --json      # JSON result after apply
 ```
 
 `doctor check` compares SQLite metadata to files under `vault/entries` and `vault/attachments` without modifying the vault. `doctor cleanup` defaults to a dry-run; use `--apply` to remove only unambiguous orphan ciphertext files.
@@ -132,11 +134,63 @@ Attachments are encrypted with the same age identity as entries. Export requires
 
 ```bash
 cerberus backup create --output /path/to/backup-dir   # Full vault snapshot + manifest
-cerberus backup verify --dir /path/to/backup-dir      # Check manifest and file digests
+cerberus backup verify --dir /path/to/backup-dir
+cerberus backup verify --dir /path/to/backup-dir --json
 cerberus backup restore --from /path/to/backup-dir --output /path/to/new-vault-root [--dry-run]
+cerberus backup restore --from /path/to/backup-dir --output /path/to/new-vault-root --dry-run --json
 ```
 
 Restore verifies the backup before writing anything. The `--output` directory must be missing or empty. Use `--dry-run` to print the restore plan without copying files.
+
+## Machine-readable Maintenance Commands
+
+The following maintenance commands support stable JSON output for scripts and agents:
+
+```bash
+cerberus backup verify --dir /path/to/backup-dir --json
+cerberus backup restore --from /path/to/backup-dir --output /path/to/new-vault-root --dry-run --json
+cerberus import --format json --input /path/to/out --json
+cerberus doctor cleanup --json
+```
+
+Exit semantics are also stable enough for automation:
+
+- `2`: invalid arguments, including unknown flags
+- `3`: vault not found or not fully initialized
+- `9`: backup verification or restore failed
+- `10`: import failed
+- `12`: conflict, such as refusing to overwrite an existing backup directory
+
+## Operation Log
+
+High-risk maintenance commands append local audit summaries to `operations.log` in the vault root:
+
+- `backup create`
+- `backup restore`
+- `import`
+- `doctor cleanup`
+
+Each log line is a JSON object and contains only summary metadata such as timestamp, command, result, target path, and duration. Plaintext entry content, attachment content, and passwords are never written to this log.
+
+## Release Acceptance
+
+Iteration 4 release confidence should be checked with real commands, not just unit tests:
+
+```bash
+npm run check
+npm test
+cerberus backup verify --dir /path/to/backup --json
+cerberus backup restore --from /path/to/backup --output /tmp/restore-check --dry-run --json
+cerberus import --format json --input /path/to/export --json
+cerberus doctor cleanup --json
+```
+
+Recommended acceptance checklist:
+
+- Verify every supported maintenance command returns parseable JSON
+- Confirm invalid flags exit with code `2`
+- Confirm restore, import, and cleanup append `operations.log` entries on both success and failure paths
+- Confirm cleanup only plans or deletes unambiguous orphan ciphertext files
 
 ## Development
 

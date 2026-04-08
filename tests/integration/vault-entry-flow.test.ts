@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -39,11 +40,15 @@ function ensureCliBuilt(): void {
   if (cliBuilt) {
     return;
   }
+  if (existsSync(path.join(process.cwd(), "dist", "index.js"))) {
+    cliBuilt = true;
+    return;
+  }
   const build = spawnSync("npm", ["run", "build"], {
     cwd: process.cwd(),
     encoding: "utf8",
   });
-  if (build.status !== 0) {
+    if (build.status !== 0) {
     throw new Error(
       `Failed to build CLI for integration test.\nSTDOUT:\n${build.stdout}\nSTDERR:\n${build.stderr}`,
     );
@@ -57,12 +62,19 @@ function runCli(
   input?: string,
 ): ReturnType<typeof spawnSync> {
   ensureCliBuilt();
+  const childEnv: NodeJS.ProcessEnv = {
+    PATH: process.env.PATH,
+    HOME: process.env.HOME,
+    TMPDIR: process.env.TMPDIR,
+    LANG: process.env.LANG,
+    LC_ALL: process.env.LC_ALL,
+  };
   return spawnSync(
     "node",
     ["dist/index.js", "--vault", vaultDir, ...args],
     {
       cwd: process.cwd(),
-      env: process.env,
+      env: childEnv,
       input,
       encoding: "utf8",
     },
