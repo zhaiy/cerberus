@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { CerberusError, ErrorCode } from "../core/errors.js";
 import { isVaultFullyInitialized } from "../core/paths.js";
+import { appendOperationLog, createOperationLogEntry } from "../core/operation-log.js";
 import type { AppPaths } from "../core/types.js";
 import { withVaultWriteLock } from "../core/vault-lock.js";
 import { openDatabase } from "../storage/db.js";
@@ -210,12 +211,15 @@ export async function createBackup(
     await fs.access(outputDir);
     throw new CerberusError(
       `Output directory already exists: ${outputDir}`,
-      ErrorCode.BACKUP_FAILED,
+      ErrorCode.CONFLICT,
     );
   } catch (e) {
     if (e instanceof CerberusError) throw e;
     // Expected: access() throws when dir doesn't exist
   }
+
+  let totalFiles = 0;
+  let totalBytes = 0;
 
   await withVaultWriteLock(appPaths, async () => {
     // Collect files while writers are blocked, so the file set and database snapshot
@@ -262,6 +266,14 @@ export async function createBackup(
     });
     manifestFiles.sort((a, b) => a.path.localeCompare(b.path));
 
+    // Calculate total bytes
+    let total = 0;
+    for (const f of manifestFiles) {
+      total += f.sizeBytes;
+    }
+    totalFiles = manifestFiles.length;
+    totalBytes = total;
+
     // Generate manifest
     const manifest: BackupManifest = {
       version: 1,
@@ -275,6 +287,20 @@ export async function createBackup(
     const manifestJson = JSON.stringify(manifest, null, 2) + "\n";
     await fs.writeFile(manifestPath, manifestJson, "utf8");
   });
+
+  // Log the operation (non-blocking, silent fail if logging fails)
+  try {
+    const entry = createOperationLogEntry({
+      command: "backup",
+      subcommand: "create",
+      result: "success",
+      targetPath: outputDir,
+      summary: `Backup created: ${totalFiles} file(s), ${totalBytes} bytes`,
+    });
+    await appendOperationLog(appPaths, entry);
+  } catch {
+    // Silent fail - logging is not critical
+  }
 }
 
 // ── Public API: verify ──
@@ -446,8 +472,39 @@ async function readManifestAfterVerify(backupRoot: string): Promise<BackupManife
   return JSON.parse(raw) as BackupManifest;
 }
 
+async function assertRestoreTargetEmpty(targetRoot: string): Promise<void> {
+  try {
+    const st = await fs.stat(targetRoot);
+    if (!st.isDirectory()) {
+      throw new CerberusError(
+        `Restore target exists and is not a directory: ${targetRoot}`,
+        ErrorCode.BACKUP_FAILED,
+      );
+    }
+    const entries = await fs.readdir(targetRoot);
+    if (entries.length > 0) {
+      throw new CerberusError(
+        `Restore target directory is not empty: ${targetRoot}`,
+        ErrorCode.BACKUP_FAILED,
+      );
+    }
+  } catch (e) {
+    if (e instanceof CerberusError) {
+      throw e;
+    }
+    // Directory does not exist — allowed
+  }
+}
+
+export interface RestoreBackupOptions {
+  backupDir: string;
+  targetDir: string;
+  dryRun: boolean;
+}
+
 /**
- * Build a restore plan after verifying the backup. Throws if verification fails.
+ * Verify backup, ensure target is missing or an empty directory, then copy all manifest files.
+ * Does not copy manifest.json into the target (it is not part of the vault).
  */
 export async function planRestore(
   backupDir: string,
@@ -487,36 +544,6 @@ export async function planRestore(
   };
 }
 
-async function assertRestoreTargetEmpty(targetRoot: string): Promise<void> {
-  try {
-    const st = await fs.stat(targetRoot);
-    if (!st.isDirectory()) {
-      throw new CerberusError(
-        `Restore target exists and is not a directory: ${targetRoot}`,
-        ErrorCode.BACKUP_FAILED,
-      );
-    }
-    const entries = await fs.readdir(targetRoot);
-    if (entries.length > 0) {
-      throw new CerberusError(
-        `Restore target directory is not empty: ${targetRoot}`,
-        ErrorCode.BACKUP_FAILED,
-      );
-    }
-  } catch (e) {
-    if (e instanceof CerberusError) {
-      throw e;
-    }
-    // Directory does not exist — allowed
-  }
-}
-
-export interface RestoreBackupOptions {
-  backupDir: string;
-  targetDir: string;
-  dryRun: boolean;
-}
-
 /**
  * Verify backup, ensure target is missing or an empty directory, then copy all manifest files.
  * Does not copy manifest.json into the target (it is not part of the vault).
@@ -541,4 +568,54 @@ export async function restoreBackup(options: RestoreBackupOptions): Promise<Rest
   }
 
   return plan;
+}
+
+/** Wrapper for restoreBackup that logs the operation */
+export async function restoreBackupWithLog(
+  appPaths: AppPaths,
+  options: RestoreBackupOptions,
+): Promise<RestorePlan> {
+  const startTime = Date.now();
+  try {
+    const plan = await restoreBackup(options);
+    const durationMs = Date.now() - startTime;
+
+    // Log the operation (non-blocking, silent fail if logging fails)
+    try {
+      const entry = createOperationLogEntry({
+        command: "backup",
+        subcommand: "restore",
+        result: "success",
+        targetPath: options.targetDir,
+        summary: `Restore completed: ${plan.totalFiles} file(s), ${plan.totalBytes} bytes`,
+        durationMs,
+      });
+      await appendOperationLog(appPaths, entry);
+    } catch {
+      // Silent fail - logging is not critical
+    }
+
+    return plan;
+  } catch (e) {
+    const durationMs = Date.now() - startTime;
+    const error = e instanceof CerberusError ? e.message : String(e);
+
+    // Log the failure (non-blocking, silent fail if logging fails)
+    try {
+      const entry = createOperationLogEntry({
+        command: "backup",
+        subcommand: "restore",
+        result: "failed",
+        targetPath: options.targetDir,
+        summary: `Restore failed: ${error}`,
+        durationMs,
+        error,
+      });
+      await appendOperationLog(appPaths, entry);
+    } catch {
+      // Silent fail - logging is not critical
+    }
+
+    throw e;
+  }
 }

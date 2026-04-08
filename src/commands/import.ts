@@ -9,11 +9,13 @@ const VALID_FORMATS = ["json", "markdown"] as const;
 interface ImportArgs {
   format: "json" | "markdown";
   inputDir?: string;
+  json: boolean;
 }
 
 function parseImportArgs(args: string[]): ImportArgs {
   const result: ImportArgs = {
     format: "json",
+    json: false,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -42,6 +44,8 @@ function parseImportArgs(args: string[]): ImportArgs {
         );
       }
       result.inputDir = val;
+    } else if (arg === "--json") {
+      result.json = true;
     }
   }
 
@@ -76,6 +80,18 @@ export async function runImportCommand(
     format: parsed.format,
     inputDir: parsed.inputDir,
   });
+
+  if (parsed.json) {
+    const output = {
+      version: 1,
+      success: stats.success,
+      skipped: stats.skipped,
+      conflict: stats.conflict,
+      summary: `Import finished: success: ${stats.success}, skipped: ${stats.skipped}, conflict: ${stats.conflict}`,
+    };
+    console.log(JSON.stringify(output, null, 2));
+    return;
+  }
 
   console.log(
     [

@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { CerberusError, ErrorCode } from "../core/errors.js";
+import { appendOperationLog, createOperationLogEntry } from "../core/operation-log.js";
 import { withVaultWriteLock } from "../core/vault-lock.js";
 import type { AppPaths, EntryCategory } from "../core/types.js";
 import { createEntryWithLockHeld } from "./vault-service.js";
@@ -94,7 +95,7 @@ async function collectJsonItems(inputDir: string): Promise<{
   } catch {
     throw new CerberusError(
       `Cannot read ${path.join(inputDir, "entries.json")}`,
-      ErrorCode.INVALID_ARGS,
+      ErrorCode.IO_FAILED,
     );
   }
   let data: unknown;
@@ -209,7 +210,7 @@ async function collectMarkdownItems(inputDir: string): Promise<{
   } catch {
     throw new CerberusError(
       `Cannot read import directory: ${inputDir}`,
-      ErrorCode.INVALID_ARGS,
+      ErrorCode.IO_FAILED,
     );
   }
   const mdFiles = names
@@ -305,6 +306,20 @@ export async function importPlaintextEntries(
       success += 1;
     }
   });
+
+  // Log the operation (non-blocking, silent fail if logging fails)
+  try {
+    const entry = createOperationLogEntry({
+      command: "import",
+      subcommand: options.format,
+      result: "success",
+      targetPath: inputDir,
+      summary: `Import completed: success: ${success}, skipped: ${parseStats.skipped}, conflict: ${parseStats.conflict}`,
+    });
+    await appendOperationLog(appPaths, entry);
+  } catch {
+    // Silent fail - logging is not critical
+  }
 
   return {
     success,

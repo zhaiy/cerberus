@@ -57,8 +57,13 @@ function renderHelp(): string {
     "  -v, --version   Show version",
     "",
     "Command Notes:",
-    "  init --password-stdin    Read password and confirmation from stdin",
-    "  unlock --password-stdin  Read password from stdin",
+    "  init --password-stdin      Read password and confirmation from stdin",
+    "  unlock --password-stdin    Read password from stdin",
+    "  list/search/show --json    Output in JSON format",
+    "  backup verify --json       Output verification result in JSON format",
+    "  backup restore --json      Output restore plan in JSON format",
+    "  import --json              Output import result in JSON format",
+    "  doctor cleanup --json      Output cleanup plan/result in JSON format",
   ].join("\n");
 }
 

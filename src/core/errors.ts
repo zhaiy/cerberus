@@ -9,6 +9,11 @@ export enum ErrorCode {
   SESSION_LOCKED = "SESSION_LOCKED",
   SESSION_EXPIRED = "SESSION_EXPIRED",
   BACKUP_FAILED = "BACKUP_FAILED",
+  IMPORT_FAILED = "IMPORT_FAILED",
+  /** I/O operation failed (e.g., file permission, disk full) */
+  IO_FAILED = "IO_FAILED",
+  /** Operation would overwrite existing data */
+  CONFLICT = "CONFLICT",
 }
 
 const errorCodeToExitCode: Record<ErrorCode, number> = {
@@ -21,6 +26,9 @@ const errorCodeToExitCode: Record<ErrorCode, number> = {
   [ErrorCode.SESSION_LOCKED]: 7,
   [ErrorCode.SESSION_EXPIRED]: 8,
   [ErrorCode.BACKUP_FAILED]: 9,
+  [ErrorCode.IMPORT_FAILED]: 10,
+  [ErrorCode.IO_FAILED]: 11,
+  [ErrorCode.CONFLICT]: 12,
 };
 
 export class CerberusError extends Error {

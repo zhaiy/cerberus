@@ -72,7 +72,40 @@ export async function runDoctorCommand(
     });
 
     if (plan.items.length === 0) {
+      if (json) {
+        const output = {
+          version: 1,
+          applied: applied && doApply,
+          dryRun: !doApply,
+          totalActions: 0,
+          actions: [],
+          summary: "No cleanup actions apply to this vault.",
+        };
+        console.log(JSON.stringify(output, null, 2));
+        return;
+      }
       console.log("No cleanup actions apply to this vault.");
+      return;
+    }
+
+    const actions = plan.items.map((item) => ({
+      action: item.action,
+      detail: item.detail,
+      target: item.target,
+    }));
+
+    if (json) {
+      const output = {
+        version: 1,
+        applied: applied && doApply,
+        dryRun: !doApply,
+        totalActions: plan.items.length,
+        actions: actions,
+        summary: doApply
+          ? `Cleanup applied: ${plan.items.length} action(s)`
+          : `Cleanup planned: ${plan.items.length} action(s) (dry-run, no changes)`,
+      };
+      console.log(JSON.stringify(output, null, 2));
       return;
     }
 

@@ -12,6 +12,7 @@ function parseBackupArgs(args: string[]): {
   backupDir?: string;
   restoreFrom?: string;
   dryRun: boolean;
+  json: boolean;
 } {
   if (args.length === 0) {
     throw new CerberusError(
@@ -25,6 +26,7 @@ function parseBackupArgs(args: string[]): {
   let backupDir: string | undefined;
   let restoreFrom: string | undefined;
   let dryRun = false;
+  let json = false;
 
   for (let i = 1; i < args.length; i++) {
     if (args[i] === "--output" || args[i] === "-o") {
@@ -59,17 +61,19 @@ function parseBackupArgs(args: string[]): {
       i += 1;
     } else if (args[i] === "--dry-run") {
       dryRun = true;
+    } else if (args[i] === "--json") {
+      json = true;
     }
   }
 
-  return { subcommand, outputDir, backupDir, restoreFrom, dryRun };
+  return { subcommand, outputDir, backupDir, restoreFrom, dryRun, json };
 }
 
 export async function runBackupCommand(
   context: AppContext,
   args: string[],
 ): Promise<void> {
-  const { subcommand, outputDir, backupDir, restoreFrom, dryRun } =
+  const { subcommand, outputDir, backupDir, restoreFrom, dryRun, json } =
     parseBackupArgs(args);
 
   if (subcommand === "create") {
@@ -93,19 +97,39 @@ export async function runBackupCommand(
       );
     }
     const result = await verifyBackup(dir);
-    if (result.errors.length === 0) {
-      console.log(
-        `Backup verified: ${result.totalFiles} file(s) OK`,
-      );
-    } else {
-      console.error("Backup verification failed:");
-      for (const err of result.errors) {
-        console.error(`  - ${err}`);
+    if (json) {
+      const output = {
+        version: 1,
+        status: result.errors.length === 0 ? "valid" : "invalid",
+        totalFiles: result.totalFiles,
+        errors: result.errors,
+        summary:
+          result.errors.length === 0
+            ? `Backup verified: ${result.totalFiles} file(s) OK`
+            : `Backup verification failed: ${result.errors.length} error(s)`,
+      };
+      console.log(JSON.stringify(output, null, 2));
+      if (result.errors.length > 0) {
+        throw new CerberusError(
+          "Backup verification failed.",
+          ErrorCode.BACKUP_FAILED,
+        );
       }
-      throw new CerberusError(
-        "Backup verification failed.",
-        ErrorCode.BACKUP_FAILED,
-      );
+    } else {
+      if (result.errors.length === 0) {
+        console.log(
+          `Backup verified: ${result.totalFiles} file(s) OK`,
+        );
+      } else {
+        console.error("Backup verification failed:");
+        for (const err of result.errors) {
+          console.error(`  - ${err}`);
+        }
+        throw new CerberusError(
+          "Backup verification failed.",
+          ErrorCode.BACKUP_FAILED,
+        );
+      }
     }
     return;
   }
@@ -128,6 +152,24 @@ export async function runBackupCommand(
       targetDir: outputDir,
       dryRun,
     });
+
+    if (json) {
+      const output = {
+        version: 1,
+        dryRun,
+        backupRoot: plan.backupRoot,
+        targetRoot: plan.targetRoot,
+        totalFiles: plan.totalFiles,
+        totalBytes: plan.totalBytes,
+        files: plan.files,
+        summary: dryRun
+          ? `Restore plan (dry-run, no files written): ${plan.totalFiles} file(s), ${plan.totalBytes} bytes`
+          : `Restore completed: ${plan.totalFiles} file(s), ${plan.totalBytes} bytes`,
+      };
+      console.log(JSON.stringify(output, null, 2));
+      return;
+    }
+
     const lines = [
       dryRun ? "Restore plan (dry-run, no files written):" : "Restored backup to:",
       `  backup (source): ${plan.backupRoot}`,
