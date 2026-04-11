@@ -1,4 +1,5 @@
 import { CerberusError, ErrorCode } from "../core/errors.js";
+import { errorEnvelope } from "../core/json-envelope.js";
 import { isVaultInitialized } from "../core/paths.js";
 import { importPlaintextEntries } from "../services/import-service.js";
 import type { AppContext } from "../core/types.js";
@@ -81,10 +82,20 @@ export async function runImportCommand(
 
   const identityPlain = await requireSession(paths);
 
-  const stats = await importPlaintextEntries(paths, identityPlain, {
-    format: parsed.format,
-    inputDir: parsed.inputDir,
-  });
+  let stats;
+  try {
+    stats = await importPlaintextEntries(paths, identityPlain, {
+      format: parsed.format,
+      inputDir: parsed.inputDir,
+    });
+  } catch (error: unknown) {
+    if (parsed.json && error instanceof CerberusError) {
+      console.log(JSON.stringify(errorEnvelope(error), null, 2));
+      process.exitCode = error.exitCode;
+      return;
+    }
+    throw error;
+  }
 
   if (parsed.json) {
     const output = {

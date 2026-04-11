@@ -72,7 +72,15 @@ export async function readOperationLog(
   try {
     const content = await fs.readFile(logPath, "utf8");
     const lines = content.trim().split("\n").filter((line) => line.length > 0);
-    return lines.map((line) => JSON.parse(line));
+    const entries: OperationLogEntry[] = [];
+    for (const line of lines) {
+      try {
+        entries.push(JSON.parse(line));
+      } catch {
+        // Skip malformed lines
+      }
+    }
+    return entries;
   } catch {
     // Log file doesn't exist or is unreadable
     return [];
@@ -97,4 +105,42 @@ export async function cleanupOperationLog(
   } catch {
     // Silent fail - logging is not critical
   }
+}
+
+/** Filter options for operation log queries */
+export interface OperationFilterOptions {
+  last?: number;
+  command?: string;
+  result?: "success" | "failed";
+}
+
+/** Filter operation log entries in memory */
+export function filterOperationLog(
+  entries: OperationLogEntry[],
+  options: OperationFilterOptions,
+): OperationLogEntry[] {
+  let filtered = entries;
+
+  if (options.command) {
+    filtered = filtered.filter((e) => e.command === options.command);
+  }
+
+  if (options.result) {
+    filtered = filtered.filter((e) => e.result === options.result);
+  }
+
+  // Apply last-N after filtering (most recent entries are at the end)
+  if (options.last !== undefined && options.last > 0) {
+    filtered = filtered.slice(-options.last);
+  }
+
+  return filtered;
+}
+
+/** Find a single operation log entry by ID */
+export function findOperationById(
+  entries: OperationLogEntry[],
+  id: string,
+): OperationLogEntry | undefined {
+  return entries.find((e) => e.id === id);
 }

@@ -1,4 +1,5 @@
 import { CerberusError, ErrorCode } from "../core/errors.js";
+import { errorEnvelope } from "../core/json-envelope.js";
 import type { AppContext } from "../core/types.js";
 import {
   createBackup,
@@ -103,22 +104,22 @@ export async function runBackupCommand(
     }
     const result = await verifyBackup(dir);
     if (json) {
-      const output = {
-        version: 1,
-        status: result.errors.length === 0 ? "valid" : "invalid",
-        totalFiles: result.totalFiles,
-        errors: result.errors,
-        summary:
-          result.errors.length === 0
-            ? `Backup verified: ${result.totalFiles} file(s) OK`
-            : `Backup verification failed: ${result.errors.length} error(s)`,
-      };
-      console.log(JSON.stringify(output, null, 2));
-      if (result.errors.length > 0) {
-        throw new CerberusError(
-          "Backup verification failed.",
+      if (result.errors.length === 0) {
+        const output = {
+          version: 1,
+          status: "valid",
+          totalFiles: result.totalFiles,
+          errors: result.errors,
+          summary: `Backup verified: ${result.totalFiles} file(s) OK`,
+        };
+        console.log(JSON.stringify(output, null, 2));
+      } else {
+        const err = new CerberusError(
+          `Backup verification failed: ${result.errors.length} error(s)`,
           ErrorCode.BACKUP_FAILED,
         );
+        console.log(JSON.stringify(errorEnvelope(err), null, 2));
+        process.exitCode = err.exitCode;
       }
     } else {
       if (result.errors.length === 0) {
@@ -152,42 +153,52 @@ export async function runBackupCommand(
         ErrorCode.INVALID_ARGS,
       );
     }
-    const plan = await restoreBackupWithLog(context.paths, {
-      backupDir: restoreFrom,
-      targetDir: outputDir,
-      dryRun,
-    });
 
-    if (json) {
-      const output = {
-        version: 1,
+    try {
+      const plan = await restoreBackupWithLog(context.paths, {
+        backupDir: restoreFrom,
+        targetDir: outputDir,
         dryRun,
-        backupRoot: plan.backupRoot,
-        targetRoot: plan.targetRoot,
-        totalFiles: plan.totalFiles,
-        totalBytes: plan.totalBytes,
-        files: plan.files,
-        summary: dryRun
-          ? `Restore plan (dry-run, no files written): ${plan.totalFiles} file(s), ${plan.totalBytes} bytes`
-          : `Restore completed: ${plan.totalFiles} file(s), ${plan.totalBytes} bytes`,
-      };
-      console.log(JSON.stringify(output, null, 2));
-      return;
-    }
+      });
 
-    const lines = [
-      dryRun ? "Restore plan (dry-run, no files written):" : "Restored backup to:",
-      `  backup (source): ${plan.backupRoot}`,
-      `  target (vault root): ${plan.targetRoot}`,
-      `  files: ${plan.totalFiles}`,
-      `  total bytes: ${plan.totalBytes}`,
-    ];
-    if (dryRun) {
-      for (const f of plan.files) {
-        lines.push(`  - ${f.relativePath} (${f.sizeBytes} bytes)`);
+      if (json) {
+        const output = {
+          version: 1,
+          dryRun,
+          backupRoot: plan.backupRoot,
+          targetRoot: plan.targetRoot,
+          totalFiles: plan.totalFiles,
+          totalBytes: plan.totalBytes,
+          files: plan.files,
+          summary: dryRun
+            ? `Restore plan (dry-run, no files written): ${plan.totalFiles} file(s), ${plan.totalBytes} bytes`
+            : `Restore completed: ${plan.totalFiles} file(s), ${plan.totalBytes} bytes`,
+        };
+        console.log(JSON.stringify(output, null, 2));
+        return;
       }
+
+      const lines = [
+        dryRun ? "Restore plan (dry-run, no files written):" : "Restored backup to:",
+        `  backup (source): ${plan.backupRoot}`,
+        `  target (vault root): ${plan.targetRoot}`,
+        `  files: ${plan.totalFiles}`,
+        `  total bytes: ${plan.totalBytes}`,
+      ];
+      if (dryRun) {
+        for (const f of plan.files) {
+          lines.push(`  - ${f.relativePath} (${f.sizeBytes} bytes)`);
+        }
+      }
+      console.log(lines.join("\n"));
+    } catch (error: unknown) {
+      if (json && error instanceof CerberusError) {
+        console.log(JSON.stringify(errorEnvelope(error), null, 2));
+        process.exitCode = error.exitCode;
+        return;
+      }
+      throw error;
     }
-    console.log(lines.join("\n"));
     return;
   }
 

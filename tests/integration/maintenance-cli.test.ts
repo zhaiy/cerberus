@@ -178,7 +178,7 @@ describe("maintenance command integration", () => {
     expect(successJson.conflict).toBe(0);
 
     const missingDir = path.join(root, "missing-import");
-    await expect(
+    const failOutput = await captureConsole(() =>
       runImportCommand(context(paths), [
         "--format",
         "json",
@@ -186,7 +186,13 @@ describe("maintenance command integration", () => {
         missingDir,
         "--json",
       ]),
-    ).rejects.toThrow(/Import directory not found/);
+    );
+    const failJson = JSON.parse(failOutput.stdout);
+    expect(failJson.version).toBe(1);
+    expect(failJson.status).toBe("error");
+    expect(failJson.error.code).toBe("INVALID_ARGS");
+    expect(failJson.error.retryable).toBe(false);
+    expect(failJson.error.message).toContain("Import directory not found");
 
     const logs = await readOperationLog(paths);
     expect(

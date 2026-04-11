@@ -11,6 +11,7 @@ import { runInitCommand } from "../commands/init.js";
 import { runListCommand } from "../commands/list.js";
 import { runLockCommand } from "../commands/lock.js";
 import { runNewCommand } from "../commands/new.js";
+import { runOpsCommand } from "../commands/ops.js";
 import { runSearchCommand } from "../commands/search.js";
 import { runShowCommand } from "../commands/show.js";
 import { runUnlockCommand } from "../commands/unlock.js";
@@ -49,6 +50,8 @@ function renderHelp(): string {
     "  backup create    Create a backup of the vault",
     "  backup verify    Verify a backup against its manifest",
     "  backup restore   Restore a verified backup to a new vault directory",
+    "  ops list         List operation log entries",
+    "  ops show <id>    Show a specific operation log entry",
     "",
     "Global Options:",
     "  --vault <path>  Use an explicit vault root instead of ~/.cerberus",
@@ -64,6 +67,8 @@ function renderHelp(): string {
     "  backup restore --json      Output restore plan in JSON format",
     "  import --json              Output import result in JSON format",
     "  doctor cleanup --json      Output cleanup plan/result in JSON format",
+    "  ops list --json            List operation log entries in JSON format",
+    "  ops show <id> --json       Show operation log entry in JSON format",
   ].join("\n");
 }
 
@@ -187,6 +192,9 @@ export async function runCli(args: string[], version: string): Promise<void> {
       return;
     case "backup":
       await runBackupCommand(context, rest);
+      return;
+    case "ops":
+      await runOpsCommand(context, rest);
       return;
     default:
       throw new CerberusError(`Unknown command: ${command}`);

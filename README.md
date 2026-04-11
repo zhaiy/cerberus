@@ -153,6 +153,27 @@ cerberus import --format json --input /path/to/out --json
 cerberus doctor cleanup --json
 ```
 
+### JSON Error Format
+
+When a maintenance command fails in `--json` mode, it outputs a structured error envelope to stdout instead of throwing:
+
+```json
+{
+  "version": 1,
+  "status": "error",
+  "error": {
+    "code": "BACKUP_FAILED",
+    "message": "Backup verification failed: 3 error(s)",
+    "retryable": false
+  }
+}
+```
+
+- `code` matches the programmatic error type (e.g. `BACKUP_FAILED`, `IMPORT_FAILED`, `INVALID_ARGS`)
+- `message` is human-readable and never contains absolute filesystem paths or sensitive data
+- `retryable` is `true` for transient issues (I/O errors, session expiry) and `false` otherwise
+- The process exit code still reflects the error type, matching the table below
+
 Exit semantics are also stable enough for automation:
 
 - `2`: invalid arguments, including unknown flags
@@ -171,6 +192,18 @@ High-risk maintenance commands append local audit summaries to `operations.log` 
 - `doctor cleanup`
 
 Each log line is a JSON object and contains only summary metadata such as timestamp, command, result, target path, and duration. Plaintext entry content, attachment content, and passwords are never written to this log.
+
+### Querying Operation Logs
+
+```bash
+cerberus ops list                                    # Last 20 operations
+cerberus ops list --last 5 --json                    # Last 5, JSON format
+cerberus ops list --command backup --result failed   # Filter by command and result
+cerberus ops show op_abc123                          # Show specific operation
+cerberus ops show op_abc123 --json                   # JSON format
+```
+
+`ops list` shows the most recent operations with optional filters (`--last`, `--command`, `--result`). `ops show <id>` displays details for a single operation. Absolute filesystem paths are never exposed in the output.
 
 ## Release Acceptance
 
@@ -235,3 +268,11 @@ Metadata (title, category, tags, timestamps) is stored unencrypted in SQLite for
 - Temporary files use mode `0o600` and are cleaned up in `finally` blocks
 - Entry content overwrite is atomic (write temp, then rename)
 - Logs and error messages never include plaintext content
+
+## For Agents and Automation
+
+See [Agent Calling Conventions](docs/AGENT_CONVENTIONS.md) for recommended call sequences, error handling, and operational procedures designed for automated agents and scripts.
+
+## Recovery Drill
+
+A real cross-directory recovery drill has been completed and documented in [DRILL-001](docs/history/2026-04-iteration-5/DRILL_REPORT_001.md). The drill verified the full backup-verify-restore-validate cycle with 3 entries across 3 categories — all data preserved with zero loss. A reusable [drill template](docs/RECOVERY_DRILL_TEMPLATE.md) is available for future drills.
