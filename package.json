@@ -1,6 +1,6 @@
 {
   "name": "cerberus",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Local-first encrypted private vault CLI.",
   "type": "module",
   "bin": {
