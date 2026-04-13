@@ -1,4 +1,4 @@
-import { CerberusError } from "../core/errors.js";
+import { CerberusError, ErrorCode } from "../core/errors.js";
 import { buildAppContext } from "../core/runtime.js";
 import { runAttachCommand } from "../commands/attach.js";
 import { runBackupCommand } from "../commands/backup.js";
@@ -95,7 +95,10 @@ function parseCliArgs(args: string[]): ParsedCliArgs {
     if (arg === "--vault") {
       const value = args[index + 1];
       if (!value) {
-        throw new CerberusError("Missing value for --vault");
+        throw new CerberusError(
+          "Missing value for --vault",
+          ErrorCode.INVALID_ARGS,
+        );
       }
       result.appDir = value;
       index += 2;
@@ -104,14 +107,20 @@ function parseCliArgs(args: string[]): ParsedCliArgs {
     if (arg === "--home") {
       const value = args[index + 1];
       if (!value) {
-        throw new CerberusError("Missing value for --home");
+        throw new CerberusError(
+          "Missing value for --home",
+          ErrorCode.INVALID_ARGS,
+        );
       }
       result.homeDir = value;
       index += 2;
       continue;
     }
     if (arg.startsWith("-")) {
-      break;
+      throw new CerberusError(
+        `Unknown global option: ${arg}`,
+        ErrorCode.INVALID_ARGS,
+      );
     }
     result.command = arg;
     result.commandArgs = args.slice(index + 1);
@@ -141,7 +150,7 @@ export async function runCli(args: string[], version: string): Promise<void> {
 
   const command = parsed.command;
   if (!command) {
-    throw new CerberusError("Missing command");
+    throw new CerberusError("Missing command", ErrorCode.INVALID_ARGS);
   }
 
   const context = buildAppContext({

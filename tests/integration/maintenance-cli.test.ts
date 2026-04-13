@@ -273,4 +273,37 @@ describe("maintenance command integration", () => {
       runImportCommand(context(paths), ["--bogus"]),
     ).rejects.toThrow(/Unknown option/);
   });
+
+  it("returns JSON error envelopes for invalid maintenance arguments in --json mode", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "cerberus-maint-json-args-"));
+    roots.push(root);
+    const paths = await setupVaultWithEntry(root);
+
+    const backupOutput = await captureConsole(() =>
+      runBackupCommand(context(paths), ["verify", "--json", "--bogus"]),
+    );
+    const backupJson = JSON.parse(backupOutput.stdout);
+    expect(backupJson.status).toBe("error");
+    expect(backupJson.error.code).toBe("INVALID_ARGS");
+    expect(process.exitCode).toBe(2);
+    process.exitCode = 0;
+
+    const importOutput = await captureConsole(() =>
+      runImportCommand(context(paths), ["--json", "--bogus"]),
+    );
+    const importJson = JSON.parse(importOutput.stdout);
+    expect(importJson.status).toBe("error");
+    expect(importJson.error.code).toBe("INVALID_ARGS");
+    expect(process.exitCode).toBe(2);
+    process.exitCode = 0;
+
+    const doctorOutput = await captureConsole(() =>
+      runDoctorCommand(context(paths), ["cleanup", "--json", "--bogus"]),
+    );
+    const doctorJson = JSON.parse(doctorOutput.stdout);
+    expect(doctorJson.status).toBe("error");
+    expect(doctorJson.error.code).toBe("INVALID_ARGS");
+    expect(process.exitCode).toBe(2);
+    process.exitCode = 0;
+  });
 });

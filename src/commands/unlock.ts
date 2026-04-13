@@ -12,9 +12,22 @@ import {
 import type { AppContext } from "../core/types.js";
 
 function parseUnlockArgs(args: string[]): { passwordStdin: boolean } {
-  return {
-    passwordStdin: args.includes("--password-stdin"),
-  };
+  let passwordStdin = false;
+
+  for (const arg of args) {
+    if (arg === "--password-stdin") {
+      passwordStdin = true;
+      continue;
+    }
+    if (arg.startsWith("-")) {
+      throw new CerberusError(
+        `Unknown option for unlock: ${arg}`,
+        ErrorCode.INVALID_ARGS,
+      );
+    }
+  }
+
+  return { passwordStdin };
 }
 
 export async function runUnlockCommand(

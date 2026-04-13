@@ -79,82 +79,84 @@ export async function runBackupCommand(
   context: AppContext,
   args: string[],
 ): Promise<void> {
-  const { subcommand, outputDir, backupDir, restoreFrom, dryRun, json } =
-    parseBackupArgs(args);
+  const wantsJson = args.includes("--json");
 
-  if (subcommand === "create") {
-    if (!outputDir) {
-      throw new CerberusError(
-        "Missing --output <dir>. Usage: cerberus backup create --output <dir>",
-        ErrorCode.INVALID_ARGS,
-      );
-    }
-    await createBackup(context.paths, { outputDir });
-    console.log(`Backup created at: ${outputDir}`);
-    return;
-  }
+  try {
+    const { subcommand, outputDir, backupDir, restoreFrom, dryRun, json } =
+      parseBackupArgs(args);
 
-  if (subcommand === "verify") {
-    const dir = backupDir ?? outputDir;
-    if (!dir) {
-      throw new CerberusError(
-        "Missing --dir <path>. Usage: cerberus backup verify --dir <path>",
-        ErrorCode.INVALID_ARGS,
-      );
-    }
-    const result = await verifyBackup(dir);
-    if (json) {
-      if (result.errors.length === 0) {
-        const output = {
-          version: 1,
-          status: "valid",
-          totalFiles: result.totalFiles,
-          errors: result.errors,
-          summary: `Backup verified: ${result.totalFiles} file(s) OK`,
-        };
-        console.log(JSON.stringify(output, null, 2));
-      } else {
-        const err = new CerberusError(
-          `Backup verification failed: ${result.errors.length} error(s)`,
-          ErrorCode.BACKUP_FAILED,
-        );
-        console.log(JSON.stringify(errorEnvelope(err), null, 2));
-        process.exitCode = err.exitCode;
-      }
-    } else {
-      if (result.errors.length === 0) {
-        console.log(
-          `Backup verified: ${result.totalFiles} file(s) OK`,
-        );
-      } else {
-        console.error("Backup verification failed:");
-        for (const err of result.errors) {
-          console.error(`  - ${err}`);
-        }
+    if (subcommand === "create") {
+      if (!outputDir) {
         throw new CerberusError(
-          "Backup verification failed.",
-          ErrorCode.BACKUP_FAILED,
+          "Missing --output <dir>. Usage: cerberus backup create --output <dir>",
+          ErrorCode.INVALID_ARGS,
         );
       }
-    }
-    return;
-  }
-
-  if (subcommand === "restore") {
-    if (!restoreFrom) {
-      throw new CerberusError(
-        "Missing --from <backup-dir>. Usage: cerberus backup restore --from <dir> --output <dir> [--dry-run]",
-        ErrorCode.INVALID_ARGS,
-      );
-    }
-    if (!outputDir) {
-      throw new CerberusError(
-        "Missing --output <dir>. Usage: cerberus backup restore --from <dir> --output <dir> [--dry-run]",
-        ErrorCode.INVALID_ARGS,
-      );
+      await createBackup(context.paths, { outputDir });
+      console.log(`Backup created at: ${outputDir}`);
+      return;
     }
 
-    try {
+    if (subcommand === "verify") {
+      const dir = backupDir ?? outputDir;
+      if (!dir) {
+        throw new CerberusError(
+          "Missing --dir <path>. Usage: cerberus backup verify --dir <path>",
+          ErrorCode.INVALID_ARGS,
+        );
+      }
+      const result = await verifyBackup(dir);
+      if (json) {
+        if (result.errors.length === 0) {
+          const output = {
+            version: 1,
+            status: "valid",
+            totalFiles: result.totalFiles,
+            errors: result.errors,
+            summary: `Backup verified: ${result.totalFiles} file(s) OK`,
+          };
+          console.log(JSON.stringify(output, null, 2));
+        } else {
+          const err = new CerberusError(
+            `Backup verification failed: ${result.errors.length} error(s)`,
+            ErrorCode.BACKUP_FAILED,
+          );
+          console.log(JSON.stringify(errorEnvelope(err), null, 2));
+          process.exitCode = err.exitCode;
+        }
+      } else {
+        if (result.errors.length === 0) {
+          console.log(
+            `Backup verified: ${result.totalFiles} file(s) OK`,
+          );
+        } else {
+          console.error("Backup verification failed:");
+          for (const err of result.errors) {
+            console.error(`  - ${err}`);
+          }
+          throw new CerberusError(
+            "Backup verification failed.",
+            ErrorCode.BACKUP_FAILED,
+          );
+        }
+      }
+      return;
+    }
+
+    if (subcommand === "restore") {
+      if (!restoreFrom) {
+        throw new CerberusError(
+          "Missing --from <backup-dir>. Usage: cerberus backup restore --from <dir> --output <dir> [--dry-run]",
+          ErrorCode.INVALID_ARGS,
+        );
+      }
+      if (!outputDir) {
+        throw new CerberusError(
+          "Missing --output <dir>. Usage: cerberus backup restore --from <dir> --output <dir> [--dry-run]",
+          ErrorCode.INVALID_ARGS,
+        );
+      }
+
       const plan = await restoreBackupWithLog(context.paths, {
         backupDir: restoreFrom,
         targetDir: outputDir,
@@ -191,19 +193,19 @@ export async function runBackupCommand(
         }
       }
       console.log(lines.join("\n"));
-    } catch (error: unknown) {
-      if (json && error instanceof CerberusError) {
-        console.log(JSON.stringify(errorEnvelope(error), null, 2));
-        process.exitCode = error.exitCode;
-        return;
-      }
-      throw error;
+      return;
     }
-    return;
-  }
 
-  throw new CerberusError(
-    `Unknown backup subcommand: ${subcommand}`,
-    ErrorCode.INVALID_ARGS,
-  );
+    throw new CerberusError(
+      `Unknown backup subcommand: ${subcommand}`,
+      ErrorCode.INVALID_ARGS,
+    );
+  } catch (error: unknown) {
+    if (wantsJson && error instanceof CerberusError) {
+      console.log(JSON.stringify(errorEnvelope(error), null, 2));
+      process.exitCode = error.exitCode;
+      return;
+    }
+    throw error;
+  }
 }

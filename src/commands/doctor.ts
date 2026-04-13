@@ -47,34 +47,35 @@ export async function runDoctorCommand(
   context: AppContext,
   args: string[],
 ): Promise<void> {
-  const { subcommand, json, apply, dryRunExplicit } = parseDoctorArgs(args);
+  const wantsJson = args.includes("--json");
 
-  if (subcommand === "check") {
-    const result = await runDoctorCheck(context.paths);
-    if (json) {
-      console.log(formatDoctorCheckJson(result));
-    } else if (result.ok) {
-      console.log("No consistency issues found.");
-    } else {
-      for (const issue of result.issues) {
-        const loc = issue.path ? ` (${issue.path})` : "";
-        console.log(`[${issue.kind}] ${issue.detail}${loc}`);
+  try {
+    const { subcommand, json, apply, dryRunExplicit } = parseDoctorArgs(args);
+
+    if (subcommand === "check") {
+      const result = await runDoctorCheck(context.paths);
+      if (json) {
+        console.log(formatDoctorCheckJson(result));
+      } else if (result.ok) {
+        console.log("No consistency issues found.");
+      } else {
+        for (const issue of result.issues) {
+          const loc = issue.path ? ` (${issue.path})` : "";
+          console.log(`[${issue.kind}] ${issue.detail}${loc}`);
+        }
       }
-    }
-    return;
-  }
-
-  if (subcommand === "cleanup") {
-    if (apply && dryRunExplicit) {
-      throw new CerberusError(
-        "Specify only one of --apply or --dry-run.",
-        ErrorCode.INVALID_ARGS,
-      );
+      return;
     }
 
-    const doApply = apply && !dryRunExplicit;
+    if (subcommand === "cleanup") {
+      if (apply && dryRunExplicit) {
+        throw new CerberusError(
+          "Specify only one of --apply or --dry-run.",
+          ErrorCode.INVALID_ARGS,
+        );
+      }
 
-    try {
+      const doApply = apply && !dryRunExplicit;
       const { plan, applied } = await runDoctorCleanup(context.paths, {
         apply: doApply,
       });
@@ -130,19 +131,19 @@ export async function runDoctorCommand(
       } else if (!doApply) {
         console.log("Run with --apply to perform these actions.");
       }
-    } catch (error: unknown) {
-      if (json && error instanceof CerberusError) {
-        console.log(JSON.stringify(errorEnvelope(error), null, 2));
-        process.exitCode = error.exitCode;
-        return;
-      }
-      throw error;
+      return;
     }
-    return;
-  }
 
-  throw new CerberusError(
-    `Unknown doctor subcommand: ${subcommand}`,
-    ErrorCode.INVALID_ARGS,
-  );
+    throw new CerberusError(
+      `Unknown doctor subcommand: ${subcommand}`,
+      ErrorCode.INVALID_ARGS,
+    );
+  } catch (error: unknown) {
+    if (wantsJson && error instanceof CerberusError) {
+      console.log(JSON.stringify(errorEnvelope(error), null, 2));
+      process.exitCode = error.exitCode;
+      return;
+    }
+    throw error;
+  }
 }

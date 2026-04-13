@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Cerberus is a local-first encrypted private vault CLI for storing sensitive notes, attachments, and final messages. It uses `age` for all content encryption and SQLite for metadata storage. Full technical specification is in `docs/PROJECT.md` (written in Chinese).
+Cerberus is a local-first encrypted private vault CLI for storing sensitive notes, attachments, and final messages. It uses `age` for all content encryption and SQLite for metadata storage. Full technical specification is in `docs/history/2026-04-iteration-5/PROJECT.md` (written in Chinese).
 
 ## Build & Development Commands
 

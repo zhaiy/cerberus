@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
 import { CerberusError } from "./core/errors.js";
+import { sanitizePaths } from "./core/json-envelope.js";
 import { runCli } from "./cli/index.js";
 
 const require = createRequire(import.meta.url);
@@ -11,7 +12,6 @@ async function main(): Promise<void> {
 
 main().catch((error: unknown) => {
   const message = error instanceof Error ? error.message : "Unknown error";
-  console.error(`[cerberus] ${message}`);
+  console.error(`[cerberus] ${sanitizePaths(message)}`);
   process.exitCode = error instanceof CerberusError ? error.exitCode : 1;
 });
-

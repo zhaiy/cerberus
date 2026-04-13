@@ -2,6 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 
+import { CerberusError, ErrorCode } from "./errors.js";
+import { sanitizePaths } from "./json-envelope.js";
 import type { AppPaths } from "./types.js";
 
 /** Operation log entry stored in the log file */
@@ -27,6 +29,8 @@ export interface OperationLogEntry {
 }
 
 const LOG_FILENAME = "operations.log";
+const MAX_LOG_ENTRIES = 1000;
+const MAX_LOG_SIZE_BYTES = 256 * 1024;
 
 /** Get the path to the operation log file */
 export function getOperationLogPath(paths: AppPaths): string {
@@ -41,6 +45,8 @@ export function createOperationLogEntry(
     id: generateId(),
     timestamp: new Date().toISOString(),
     ...options,
+    summary: sanitizePaths(options.summary),
+    error: options.error ? sanitizePaths(options.error) : undefined,
   };
 }
 
@@ -59,6 +65,10 @@ export async function appendOperationLog(
   try {
     await fs.mkdir(paths.appDir, { recursive: true });
     await fs.appendFile(logPath, line, "utf8");
+    const stat = await fs.stat(logPath);
+    if (stat.size > MAX_LOG_SIZE_BYTES) {
+      await cleanupOperationLog(paths, MAX_LOG_ENTRIES);
+    }
   } catch {
     // If writing to the log fails, silently fail - logging is not critical
   }
@@ -81,10 +91,26 @@ export async function readOperationLog(
       }
     }
     return entries;
-  } catch {
-    // Log file doesn't exist or is unreadable
-    return [];
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {
+      return [];
+    }
+    throw new CerberusError(
+      "Could not read operation log.",
+      ErrorCode.IO_FAILED,
+    );
   }
+}
+
+export function redactOperationLogEntry(
+  entry: OperationLogEntry,
+): Omit<OperationLogEntry, "targetPath"> {
+  const { targetPath: _, ...safe } = entry;
+  return {
+    ...safe,
+    summary: sanitizePaths(safe.summary),
+    error: safe.error ? sanitizePaths(safe.error) : undefined,
+  };
 }
 
 /** Clear old operation log entries (keep last N entries) */

@@ -24,7 +24,7 @@ This document provides recommended call sequences and operational procedures for
 
 ### JSON Output Modes
 
-Commands that support `--json` produce stable, parseable output. In `--json` mode, **failures also produce structured JSON** instead of free-form stderr:
+Commands that support `--json` produce stable, parseable output. In `--json` mode, **failures also produce structured JSON** instead of free-form stderr, including invalid arguments and unknown flags:
 
 ```json
 {
@@ -362,7 +362,7 @@ cerberus ops list --result failed --json
 cerberus ops show op_abc123 --json
 ```
 
-Returns full details for a single operation. The `targetPath` field is never exposed in output.
+Returns full details for a single operation. The `targetPath` field is never exposed in output, and any absolute paths embedded in older summaries or errors are redacted.
 
 ### Filter by Command Type
 

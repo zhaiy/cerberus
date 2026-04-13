@@ -8,9 +8,22 @@ import type { AppContext } from "../core/types.js";
 import { initializeVault } from "../services/vault-service.js";
 
 function parseInitArgs(args: string[]): { passwordStdin: boolean } {
-  return {
-    passwordStdin: args.includes("--password-stdin"),
-  };
+  let passwordStdin = false;
+
+  for (const arg of args) {
+    if (arg === "--password-stdin") {
+      passwordStdin = true;
+      continue;
+    }
+    if (arg.startsWith("-")) {
+      throw new CerberusError(
+        `Unknown option for init: ${arg}`,
+        ErrorCode.INVALID_ARGS,
+      );
+    }
+  }
+
+  return { passwordStdin };
 }
 
 export async function runInitCommand(

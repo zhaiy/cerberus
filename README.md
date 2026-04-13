@@ -173,6 +173,7 @@ When a maintenance command fails in `--json` mode, it outputs a structured error
 - `message` is human-readable and never contains absolute filesystem paths or sensitive data
 - `retryable` is `true` for transient issues (I/O errors, session expiry) and `false` otherwise
 - The process exit code still reflects the error type, matching the table below
+- Invalid arguments in `--json` mode also use this envelope instead of falling back to stderr text
 
 Exit semantics are also stable enough for automation:
 
@@ -192,6 +193,7 @@ High-risk maintenance commands append local audit summaries to `operations.log` 
 - `doctor cleanup`
 
 Each log line is a JSON object and contains only summary metadata such as timestamp, command, result, target path, and duration. Plaintext entry content, attachment content, and passwords are never written to this log.
+When the log grows past the normal working set, Cerberus trims it back to the most recent entries so `ops` queries remain responsive.
 
 ### Querying Operation Logs
 
@@ -203,7 +205,7 @@ cerberus ops show op_abc123                          # Show specific operation
 cerberus ops show op_abc123 --json                   # JSON format
 ```
 
-`ops list` shows the most recent operations with optional filters (`--last`, `--command`, `--result`). `ops show <id>` displays details for a single operation. Absolute filesystem paths are never exposed in the output.
+`ops list` shows the most recent operations with optional filters (`--last`, `--command`, `--result`). `ops show <id>` displays details for a single operation. Absolute filesystem paths are never exposed in the output, even if older log lines contain them.
 
 ## Release Acceptance
 
@@ -271,8 +273,8 @@ Metadata (title, category, tags, timestamps) is stored unencrypted in SQLite for
 
 ## For Agents and Automation
 
-See [Agent Calling Conventions](docs/AGENT_CONVENTIONS.md) for recommended call sequences, error handling, and operational procedures designed for automated agents and scripts.
+See [Agent Calling Conventions](docs/history/2026-04-iteration-5/AGENT_CONVENTIONS.md) for recommended call sequences, error handling, and operational procedures designed for automated agents and scripts.
 
 ## Recovery Drill
 
-A real cross-directory recovery drill has been completed and documented in [DRILL-001](docs/history/2026-04-iteration-5/DRILL_REPORT_001.md). The drill verified the full backup-verify-restore-validate cycle with 3 entries across 3 categories — all data preserved with zero loss. A reusable [drill template](docs/RECOVERY_DRILL_TEMPLATE.md) is available for future drills.
+A real cross-directory recovery drill has been completed and documented in [DRILL-001](docs/history/2026-04-iteration-5/DRILL_REPORT_001.md). The drill verified the full backup-verify-restore-validate cycle with 3 entries across 3 categories — all data preserved with zero loss. A reusable [drill template](docs/history/2026-04-iteration-5/RECOVERY_DRILL_TEMPLATE.md) is available for future drills.

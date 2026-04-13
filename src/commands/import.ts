@@ -62,59 +62,59 @@ export async function runImportCommand(
   context: AppContext,
   args: string[],
 ): Promise<void> {
-  const { paths } = context;
+  const wantsJson = args.includes("--json");
 
-  if (!(await isVaultInitialized(paths))) {
-    throw new CerberusError(
-      "Vault is not initialized. Run `cerberus init` first.",
-      ErrorCode.VAULT_NOT_FOUND,
-    );
-  }
-
-  const parsed = parseImportArgs(args);
-
-  if (!parsed.inputDir) {
-    throw new CerberusError(
-      "Missing --input <dir>. Usage: cerberus import --format json|markdown --input <dir>",
-      ErrorCode.INVALID_ARGS,
-    );
-  }
-
-  const identityPlain = await requireSession(paths);
-
-  let stats;
   try {
-    stats = await importPlaintextEntries(paths, identityPlain, {
+    const { paths } = context;
+
+    if (!(await isVaultInitialized(paths))) {
+      throw new CerberusError(
+        "Vault is not initialized. Run `cerberus init` first.",
+        ErrorCode.VAULT_NOT_FOUND,
+      );
+    }
+
+    const parsed = parseImportArgs(args);
+
+    if (!parsed.inputDir) {
+      throw new CerberusError(
+        "Missing --input <dir>. Usage: cerberus import --format json|markdown --input <dir>",
+        ErrorCode.INVALID_ARGS,
+      );
+    }
+
+    const identityPlain = await requireSession(paths);
+    const stats = await importPlaintextEntries(paths, identityPlain, {
       format: parsed.format,
       inputDir: parsed.inputDir,
     });
+
+    if (parsed.json) {
+      const output = {
+        version: 1,
+        success: stats.success,
+        skipped: stats.skipped,
+        conflict: stats.conflict,
+        summary: `Import finished: success: ${stats.success}, skipped: ${stats.skipped}, conflict: ${stats.conflict}`,
+      };
+      console.log(JSON.stringify(output, null, 2));
+      return;
+    }
+
+    console.log(
+      [
+        "Import finished:",
+        `  success: ${stats.success}`,
+        `  skipped: ${stats.skipped}`,
+        `  conflict: ${stats.conflict}`,
+      ].join("\n"),
+    );
   } catch (error: unknown) {
-    if (parsed.json && error instanceof CerberusError) {
+    if (wantsJson && error instanceof CerberusError) {
       console.log(JSON.stringify(errorEnvelope(error), null, 2));
       process.exitCode = error.exitCode;
       return;
     }
     throw error;
   }
-
-  if (parsed.json) {
-    const output = {
-      version: 1,
-      success: stats.success,
-      skipped: stats.skipped,
-      conflict: stats.conflict,
-      summary: `Import finished: success: ${stats.success}, skipped: ${stats.skipped}, conflict: ${stats.conflict}`,
-    };
-    console.log(JSON.stringify(output, null, 2));
-    return;
-  }
-
-  console.log(
-    [
-      "Import finished:",
-      `  success: ${stats.success}`,
-      `  skipped: ${stats.skipped}`,
-      `  conflict: ${stats.conflict}`,
-    ].join("\n"),
-  );
 }

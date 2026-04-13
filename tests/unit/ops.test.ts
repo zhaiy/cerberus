@@ -255,6 +255,39 @@ describe("ops command", () => {
     expect(json).not.toHaveProperty("targetPath");
   });
 
+  it("redacts absolute paths from ops output", async () => {
+    root = await fs.mkdtemp(path.join(os.tmpdir(), "cerberus-ops-redact-"));
+    roots.push(root);
+    paths = tempPaths(root);
+    await fs.mkdir(paths.appDir, { recursive: true });
+    await fs.writeFile(
+      path.join(paths.appDir, "operations.log"),
+      `${JSON.stringify({
+        id: "op_redact",
+        timestamp: "2026-04-13T00:00:00.000Z",
+        command: "backup",
+        subcommand: "restore",
+        result: "failed",
+        targetPath: "/Users/alice/restore",
+        summary: "Restore failed from /Users/alice/source-backup",
+        error: "Could not write /Users/alice/restore/db.sqlite",
+      })}\n`,
+      "utf8",
+    );
+
+    const listOutput = await captureConsole(() =>
+      runOpsCommand({ paths, config: undefined }, ["list"]),
+    );
+    expect(listOutput.stdout).toContain("<path>");
+    expect(listOutput.stdout).not.toContain("/Users/alice");
+
+    const showOutput = await captureConsole(() =>
+      runOpsCommand({ paths, config: undefined }, ["show", "op_redact"]),
+    );
+    expect(showOutput.stdout).toContain("Error:      Could not write <path>");
+    expect(showOutput.stdout).not.toContain("/Users/alice");
+  });
+
   it("ops show with invalid ID outputs error envelope in JSON mode", async () => {
     const p = await setupWithLogs();
     const output = await captureConsole(() =>
@@ -283,6 +316,22 @@ describe("ops command", () => {
     expect(json.operations).toHaveLength(0);
   });
 
+  it("returns IO_FAILED when the operation log cannot be read", async () => {
+    root = await fs.mkdtemp(path.join(os.tmpdir(), "cerberus-ops-badlog-"));
+    roots.push(root);
+    paths = tempPaths(root);
+    await fs.mkdir(path.join(paths.appDir, "operations.log"), { recursive: true });
+
+    const output = await captureConsole(() =>
+      runOpsCommand({ paths, config: undefined }, ["list", "--json"]),
+    );
+    const json = JSON.parse(output.stdout);
+    expect(json.status).toBe("error");
+    expect(json.error.code).toBe("IO_FAILED");
+    expect(process.exitCode).toBe(11);
+    process.exitCode = 0;
+  });
+
   it("rejects unknown ops subcommand", async () => {
     const p = await setupWithLogs();
     await expect(
@@ -295,5 +344,17 @@ describe("ops command", () => {
     await expect(
       runOpsCommand({ paths: p, config: undefined }, ["list", "--result", "invalid"]),
     ).rejects.toThrow(/Invalid --result/);
+  });
+
+  it("returns JSON error envelope for invalid args in JSON mode", async () => {
+    const p = await setupWithLogs();
+    const output = await captureConsole(() =>
+      runOpsCommand({ paths: p, config: undefined }, ["list", "--json", "--result", "invalid"]),
+    );
+    const json = JSON.parse(output.stdout);
+    expect(json.status).toBe("error");
+    expect(json.error.code).toBe("INVALID_ARGS");
+    expect(process.exitCode).toBe(2);
+    process.exitCode = 0;
   });
 });

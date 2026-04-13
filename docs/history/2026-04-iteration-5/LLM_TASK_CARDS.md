@@ -17,9 +17,9 @@ _最后更新：2026-04-08_
 
 每次下发任务建议附带：
 
-1. 当前技术方案：`docs/PROJECT.md`
-2. 第五期计划：`docs/ITERATION_5_PLAN.md`
-3. 第四期最终验收：`docs/ITERATION_4_FINAL_ACCEPTANCE.md`
+1. 当前技术方案：`PROJECT.md`
+2. 第五期计划：`ITERATION_5_PLAN.md`
+3. 第四期最终验收：`ITERATION_4_FINAL_ACCEPTANCE.md`
 4. 本文档中对应任务卡
 5. 仓库当前代码状态
 
@@ -60,9 +60,9 @@ _最后更新：2026-04-08_
 - 当前已完成第四期迭代，并已通过最终验收
 - 第五期聚焦可观测维护接口与 Agent 调用规范
 - 产品继续以 CLI 和 agents 为主，不做 UI
-- 技术方案见 `docs/PROJECT.md`
-- 当前迭代计划见 `docs/ITERATION_5_PLAN.md`
-- 上一期最终验收结论见 `docs/ITERATION_4_FINAL_ACCEPTANCE.md`
+- 技术方案见 `PROJECT.md`
+- 当前迭代计划见 `ITERATION_5_PLAN.md`
+- 上一期最终验收结论见 `ITERATION_4_FINAL_ACCEPTANCE.md`
 
 ## 本次范围
 

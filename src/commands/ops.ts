@@ -5,6 +5,7 @@ import {
   findOperationById,
   type OperationFilterOptions,
   type OperationLogEntry,
+  redactOperationLogEntry,
   readOperationLog,
 } from "../core/operation-log.js";
 import type { AppContext } from "../core/types.js";
@@ -131,14 +132,6 @@ function parseShowArgs(args: string[]): OpsShowArgs {
 
 // ── Output formatting ───────────────────────────────────────────────
 
-/** Strip targetPath from an entry for safe output */
-function safeEntry(
-  entry: OperationLogEntry,
-): Omit<OperationLogEntry, "targetPath"> {
-  const { targetPath: _, ...safe } = entry;
-  return safe;
-}
-
 function formatListText(entries: OperationLogEntry[]): string {
   if (entries.length === 0) {
     return "No operations found.";
@@ -146,16 +139,17 @@ function formatListText(entries: OperationLogEntry[]): string {
 
   const lines: string[] = [];
   for (const e of entries) {
+    const safe = redactOperationLogEntry(e);
     const cmd = e.subcommand ? `${e.command} ${e.subcommand}` : e.command;
     lines.push(
-      `${e.id}  ${e.timestamp}  ${cmd}  ${e.result}  ${e.summary}`,
+      `${safe.id}  ${safe.timestamp}  ${cmd}  ${safe.result}  ${safe.summary}`,
     );
   }
   return lines.join("\n");
 }
 
 function formatListJson(entries: OperationLogEntry[]): string {
-  const safe = entries.map(safeEntry);
+  const safe = entries.map(redactOperationLogEntry);
   return JSON.stringify(
     {
       version: 1,
@@ -168,21 +162,22 @@ function formatListJson(entries: OperationLogEntry[]): string {
 }
 
 function formatShowText(entry: OperationLogEntry): string {
-  const cmd = entry.subcommand
-    ? `${entry.command} ${entry.subcommand}`
-    : entry.command;
+  const safe = redactOperationLogEntry(entry);
+  const cmd = safe.subcommand
+    ? `${safe.command} ${safe.subcommand}`
+    : safe.command;
   const lines = [
-    `Operation:  ${entry.id}`,
-    `Timestamp:  ${entry.timestamp}`,
+    `Operation:  ${safe.id}`,
+    `Timestamp:  ${safe.timestamp}`,
     `Command:    ${cmd}`,
-    `Result:     ${entry.result}`,
-    `Summary:    ${entry.summary}`,
+    `Result:     ${safe.result}`,
+    `Summary:    ${safe.summary}`,
   ];
-  if (entry.durationMs !== undefined) {
-    lines.push(`Duration:   ${entry.durationMs}ms`);
+  if (safe.durationMs !== undefined) {
+    lines.push(`Duration:   ${safe.durationMs}ms`);
   }
-  if (entry.error) {
-    lines.push(`Error:      ${entry.error}`);
+  if (safe.error) {
+    lines.push(`Error:      ${safe.error}`);
   }
   return lines.join("\n");
 }
@@ -191,7 +186,7 @@ function formatShowJson(entry: OperationLogEntry): string {
   return JSON.stringify(
     {
       version: 1,
-      ...safeEntry(entry),
+      ...redactOperationLogEntry(entry),
     },
     null,
     2,
@@ -204,9 +199,13 @@ export async function runOpsCommand(
   context: AppContext,
   args: string[],
 ): Promise<void> {
-  const { subcommand, listArgs, showArgs } = parseOpsArgs(args);
+  const wantsJson = args.includes("--json");
+  let subcommand: string;
+  let listArgs: OpsListArgs | undefined;
+  let showArgs: OpsShowArgs | undefined;
 
   try {
+    ({ subcommand, listArgs, showArgs } = parseOpsArgs(args));
     const entries = await readOperationLog(context.paths);
 
     if (subcommand === "list" && listArgs) {
@@ -248,9 +247,7 @@ export async function runOpsCommand(
       return;
     }
   } catch (error: unknown) {
-    // For JSON mode, output error envelope; otherwise re-throw
-    const isJson =
-      (listArgs?.json ?? false) || (showArgs?.json ?? false);
+    const isJson = wantsJson || (listArgs?.json ?? false) || (showArgs?.json ?? false);
     if (isJson && error instanceof CerberusError) {
       console.log(JSON.stringify(errorEnvelope(error), null, 2));
       process.exitCode = error.exitCode;
