@@ -64,6 +64,10 @@ async function sleep(ms: number): Promise<void> {
 
 async function tryAcquireVaultLock(paths: AppPaths): Promise<(() => Promise<void>) | null> {
   const lockDir = getLockDir(paths);
+  // Ensure the parent app directory exists so the (non-recursive) lock mkdir
+  // can succeed on a fresh vault. The lock itself stays non-recursive so its
+  // EEXIST-based mutual exclusion is preserved.
+  await fs.mkdir(paths.appDir, { recursive: true });
   try {
     await fs.mkdir(lockDir);
   } catch (error) {
